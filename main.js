@@ -56,6 +56,7 @@ const LevelRegistry = {
     49: { type: 'light-toggle', config: { size: 6, randomize: true, lockedCells: 4 } },
     50: { type: 'multi-puzzle', config: { stages: 3, timeLimit: 120 } },
     51: { type: 'memory-cards', config: { rows: 6, cols: 6, timeLimit: 40, reshuffleAfter: 2, flipBackSpeed: 400, blackout: true } },
+    52: { type: 'maze', config: { width: 25, height: 25, cellSize: 22, fogOfWar: true, viewRadius: 2, enemies: 4, traps: 5 } },
 };
 
 // ============================================================
@@ -982,7 +983,7 @@ class GameScene extends Phaser.Scene {
 
     createMazePuzzle(config) {
         const { width, height } = this.scale;
-        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies } = config;
+        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps } = config;
 
         // Generate maze using recursive backtracker algorithm
         // 0 = path, 1 = wall, 2+ = door (blocked until key collected)
@@ -1123,7 +1124,7 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        const instrText = hasKeys ? 'Collect keys to unlock doors! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
+        const instrText = hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
         this.add.text(width / 2, 30, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
@@ -1352,6 +1353,73 @@ class GameScene extends Phaser.Scene {
             updateEnemyVisibility();
         };
 
+        // Trap setup - hidden cells that teleport player to a random position
+        const trapData = [];
+        if (numTraps && numTraps > 0) {
+            // Collect path cells for trap placement (exclude start, exit, key/door cells)
+            const trapCandidates = [];
+            for (let r = 0; r < mazeH; r++) {
+                for (let c = 0; c < mazeW; c++) {
+                    if (maze[r][c] !== 0) continue;
+                    if (r === 0 && c === 0) continue;
+                    if (r === mazeH - 1 && c === mazeW - 1) continue;
+                    const isKey = keyCells.some(kc => kc.r === r && kc.c === c);
+                    const isDoor = doorCells.some(dc => dc.r === r && dc.c === c);
+                    if (isKey || isDoor) continue;
+                    trapCandidates.push({ r, c });
+                }
+            }
+
+            // Spread traps evenly throughout the maze using BFS distance
+            const tDist = Array.from({ length: mazeH }, () => Array(mazeW).fill(-1));
+            tDist[0][0] = 0;
+            const tq = [{ r: 0, c: 0 }];
+            let tqi = 0;
+            while (tqi < tq.length) {
+                const { r, c } = tq[tqi++];
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0 && tDist[nr][nc] === -1) {
+                        tDist[nr][nc] = tDist[r][c] + 1;
+                        tq.push({ r: nr, c: nc });
+                    }
+                }
+            }
+            trapCandidates.sort((a, b) => tDist[a.r][a.c] - tDist[b.r][b.c]);
+
+            // Place traps spread across the maze, avoiding cells too close to start
+            for (let t = 0; t < numTraps && trapCandidates.length > 0; t++) {
+                const idx = Math.floor(trapCandidates.length * (0.2 + t * (0.6 / numTraps)));
+                const cell = trapCandidates[Math.min(idx, trapCandidates.length - 1)];
+                // Create a hidden trap sprite (invisible until triggered)
+                const tx = offsetX + cell.c * cellSize + cellSize / 2;
+                const ty = offsetY + cell.r * cellSize + cellSize / 2;
+                const trapSprite = this.add.rectangle(tx, ty, cellSize - 4, cellSize - 4, 0xff6600, 0.8);
+                trapSprite.setStrokeStyle(2, 0xff3300);
+                trapSprite.setVisible(false);
+                if (fogOfWar) trapSprite.setDepth(12);
+                trapData.push({ r: cell.r, c: cell.c, sprite: trapSprite, triggered: false });
+            }
+        }
+
+        // Get a random path cell for trap teleport destination
+        const getRandomPathCell = () => {
+            const candidates = [];
+            for (let r = 0; r < mazeH; r++) {
+                for (let c = 0; c < mazeW; c++) {
+                    if (maze[r][c] !== 0) continue;
+                    if (r === 0 && c === 0) continue;
+                    if (r === mazeH - 1 && c === mazeW - 1) continue;
+                    // Avoid teleporting onto an enemy
+                    const hasEnemy = enemyData.some(e => e.row === r && e.col === c);
+                    if (hasEnemy) continue;
+                    candidates.push({ r, c });
+                }
+            }
+            return candidates[Math.floor(Math.random() * candidates.length)];
+        };
+
         // Enemy patrol timer
         if (enemyData.length > 0) {
             this.time.addEvent({
@@ -1435,6 +1503,42 @@ class GameScene extends Phaser.Scene {
                             maze[door.row][door.col] = 0;
                         }
                     }
+                }
+            }
+
+            // Check trap collision
+            for (const trap of trapData) {
+                if (!trap.triggered && playerRow === trap.r && playerCol === trap.c) {
+                    trap.triggered = true;
+                    // Show the trap briefly
+                    trap.sprite.setVisible(true);
+                    inputLocked = true;
+
+                    // Flash the trap, then teleport player
+                    this.time.delayedCall(400, () => {
+                        const dest = getRandomPathCell();
+                        if (dest) {
+                            playerCol = dest.c;
+                            playerRow = dest.r;
+                            player.setPosition(
+                                offsetX + playerCol * cellSize + cellSize / 2,
+                                offsetY + playerRow * cellSize + cellSize / 2
+                            );
+                        }
+                        updateFog();
+                        updateEnemyVisibility();
+                        // Check if teleported onto enemy
+                        if (checkEnemyCollision()) {
+                            respawnPlayer();
+                        }
+                        inputLocked = false;
+                    });
+
+                    // Hide trap sprite after showing it
+                    this.time.delayedCall(800, () => {
+                        trap.sprite.setVisible(false);
+                    });
+                    return;
                 }
             }
 
