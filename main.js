@@ -48,6 +48,7 @@ const LevelRegistry = {
     41: { type: 'simon-says', config: { sequenceLength: 10, colors: 6, playbackSpeed: 400, replayAllowed: false } },
     42: { type: 'color-chain', config: { gridSize: 7, colors: 8, fillBoard: true } },
     43: { type: 'memory-cards', config: { rows: 5, cols: 6, timeLimit: 35, reshuffleAfter: 3, flipBackSpeed: 500 } },
+    44: { type: 'jigsaw', config: { rows: 4, cols: 4, canRotate: true } },
 };
 
 // ============================================================
@@ -3824,14 +3825,18 @@ class GameScene extends Phaser.Scene {
     }
     createJigsawPuzzle(config) {
         const { width, height } = this.scale;
-        const { rows, cols } = config;
+        const { rows, cols, canRotate } = config;
         const totalPieces = rows * cols;
 
         // Instructions
-        this.add.text(width / 2, 70, 'Click a piece, then click a grid slot to place it!', {
-            fontSize: '18px',
+        const instrText = canRotate
+            ? 'Click a piece, then click a grid slot to place it!\nRight-click or double-click a selected piece to rotate it.'
+            : 'Click a piece, then click a grid slot to place it!';
+        this.add.text(width / 2, 70, instrText, {
+            fontSize: '16px',
             fontFamily: 'Arial, sans-serif',
             color: '#aaaaaa',
+            align: 'center',
         }).setOrigin(0.5);
 
         // Pieces placed counter
@@ -3842,19 +3847,21 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
         }).setOrigin(0.5);
 
-        // Grid dimensions
-        const pieceSize = 80;
+        // Grid dimensions — scale piece size down for larger grids
+        const maxGridWidth = width - 40;
+        const maxGridHeight = (height - 200) * 0.55;
+        const pieceSize = Math.min(80, Math.floor(maxGridWidth / cols), Math.floor(maxGridHeight / rows));
         const gridW = cols * pieceSize;
         const gridH = rows * pieceSize;
         const gridX = width / 2 - gridW / 2;
-        const gridY = 140;
+        const gridY = canRotate ? 110 : 140;
 
-        // Create colorful pattern as a texture using graphics
-        const gfx = this.add.graphics();
-        const colors = [
-            [0xe74c3c, 0xf39c12, 0xf1c40f],
-            [0x2ecc71, 0x3498db, 0x9b59b6],
-            [0x1abc9c, 0xe67e22, 0xc0392b],
+        // Generate colors for any grid size
+        const allColors = [
+            0xe74c3c, 0xf39c12, 0xf1c40f, 0x2ecc71,
+            0x3498db, 0x9b59b6, 0x1abc9c, 0xe67e22,
+            0xc0392b, 0x16a085, 0x2980b9, 0x8e44ad,
+            0xd35400, 0x27ae60, 0x2c3e50, 0xf06292,
         ];
 
         // Draw target grid outlines
@@ -3881,6 +3888,31 @@ class GameScene extends Phaser.Scene {
         let selectedPiece = null;
         let selectionHighlight = null;
 
+        // Helper to update selection highlight position
+        const updateHighlight = (piece) => {
+            if (selectionHighlight) {
+                selectionHighlight.destroy();
+                selectionHighlight = null;
+            }
+            selectionHighlight = this.add.rectangle(
+                piece.rect.x, piece.rect.y,
+                pieceSize + 4, pieceSize + 4
+            ).setStrokeStyle(3, 0xffff00).setFillStyle(0xffff00, 0.15)
+                .setAngle(piece.rotation || 0);
+        };
+
+        // Rotate function for canRotate mode
+        const rotatePiece = (piece) => {
+            if (!piece || piece.placed) return;
+            piece.rotation = ((piece.rotation || 0) + 90) % 360;
+            piece.rect.setAngle(piece.rotation);
+            piece.label.setAngle(piece.rotation);
+            if (piece.rotIndicator) piece.rotIndicator.setAngle(piece.rotation);
+            if (selectedPiece === piece) {
+                updateHighlight(piece);
+            }
+        };
+
         // Create the scattered pieces
         const pieces = [];
         const scatterMinX = 60;
@@ -3888,9 +3920,15 @@ class GameScene extends Phaser.Scene {
         const scatterMinY = gridY + gridH + 40;
         const scatterMaxY = height - 70;
 
+        // Disable default context menu for rotation support
+        if (canRotate) {
+            this.input.mouse.disableContextMenu();
+        }
+
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
-                const color = colors[r][c];
+                const colorIdx = (r * cols + c) % allColors.length;
+                const color = allColors[colorIdx];
                 const sx = Phaser.Math.Between(scatterMinX, scatterMaxX);
                 const sy = Phaser.Math.Between(scatterMinY, scatterMaxY);
 
@@ -3898,9 +3936,9 @@ class GameScene extends Phaser.Scene {
                     .setStrokeStyle(2, 0xffffff, 0.5)
                     .setInteractive({ useHandCursor: true });
 
-                // Draw a small label on the piece showing its pattern
+                // Draw a small label on the piece showing its number
                 const label = this.add.text(sx, sy, `${r * cols + c + 1}`, {
-                    fontSize: '20px',
+                    fontSize: pieceSize > 60 ? '20px' : '14px',
                     fontFamily: 'Arial, sans-serif',
                     color: '#ffffff',
                     fontStyle: 'bold',
@@ -3914,11 +3952,46 @@ class GameScene extends Phaser.Scene {
                     placed: false,
                     origX: sx,
                     origY: sy,
+                    rotation: 0,
+                    rotIndicator: null,
                 };
+
+                // Add a small triangle indicator for rotation orientation
+                if (canRotate) {
+                    // Randomize initial rotation
+                    const startRot = [0, 90, 180, 270][Phaser.Math.Between(0, 3)];
+                    piece.rotation = startRot;
+                    pieceRect.setAngle(startRot);
+                    label.setAngle(startRot);
+
+                    // Small arrow indicator at top of piece
+                    const indicator = this.add.triangle(
+                        sx, sy - pieceSize / 2 + 10,
+                        0, 8, -5, 0, 5, 0,
+                        0xffffff, 0.7
+                    );
+                    indicator.setAngle(startRot);
+                    piece.rotIndicator = indicator;
+                }
+
                 pieces.push(piece);
 
-                pieceRect.on('pointerdown', () => {
+                pieceRect.on('pointerdown', (pointer) => {
                     if (piece.placed) return;
+
+                    // Right-click rotates selected piece
+                    if (canRotate && pointer.rightButtonDown()) {
+                        if (selectedPiece === piece) {
+                            rotatePiece(piece);
+                        }
+                        return;
+                    }
+
+                    // If clicking the already-selected piece (double-click style), rotate it
+                    if (canRotate && selectedPiece === piece) {
+                        rotatePiece(piece);
+                        return;
+                    }
 
                     // Clear previous selection
                     if (selectionHighlight) {
@@ -3927,10 +4000,7 @@ class GameScene extends Phaser.Scene {
                     }
 
                     selectedPiece = piece;
-                    selectionHighlight = this.add.rectangle(
-                        piece.rect.x, piece.rect.y,
-                        pieceSize + 4, pieceSize + 4
-                    ).setStrokeStyle(3, 0xffff00).setFillStyle(0xffff00, 0.15);
+                    updateHighlight(piece);
                 });
             }
         }
@@ -3957,15 +4027,24 @@ class GameScene extends Phaser.Scene {
                     }
                     selectedPiece = null;
 
-                    // Check if correct position
-                    if (piece.row === r && piece.col === c) {
+                    // Check if correct position (and rotation if canRotate)
+                    const posCorrect = piece.row === r && piece.col === c;
+                    const rotCorrect = !canRotate || piece.rotation === 0;
+
+                    if (posCorrect && rotCorrect) {
                         // Correct — snap piece into grid
                         piece.rect.setPosition(x, y);
+                        piece.rect.setAngle(0);
                         piece.label.setPosition(x, y);
+                        piece.label.setAngle(0);
                         piece.rect.setStrokeStyle(2, 0x00ff00, 0.8);
                         piece.placed = true;
                         piece.rect.disableInteractive();
                         grid[r][c] = piece;
+                        if (piece.rotIndicator) {
+                            piece.rotIndicator.setPosition(x, y - pieceSize / 2 + 10);
+                            piece.rotIndicator.setAngle(0);
+                        }
 
                         placedCount++;
                         countText.setText(`Pieces placed: ${placedCount} / ${totalPieces}`);
@@ -3984,6 +4063,9 @@ class GameScene extends Phaser.Scene {
                             // Return to original scattered position
                             piece.rect.setPosition(piece.origX, piece.origY);
                             piece.label.setPosition(piece.origX, piece.origY);
+                            if (piece.rotIndicator) {
+                                piece.rotIndicator.setPosition(piece.origX, piece.origY - pieceSize / 2 + 10);
+                            }
                         });
                     }
                 });
