@@ -26,6 +26,10 @@ python3 -m http.server 8000
 - **GameScene** — Displays the level, looks up puzzle from LevelRegistry
 - **LevelCompleteScene** — Shows completion, Next Level / Back to Menu
 
+## Running Tests
+
+Open `test.html` in a browser (or serve it via a local HTTP server). It loads the game and runs automated smoke tests, displaying results as a pass/fail report on the page.
+
 ## Adding a Level
 
 Register the level in the `LevelRegistry` object in `main.js`:

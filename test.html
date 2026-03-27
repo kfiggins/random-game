@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Game - Smoke Tests</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #ffffff;
+            margin-bottom: 5px;
+        }
+        #summary {
+            font-size: 18px;
+            margin-bottom: 20px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            background: #222244;
+        }
+        .pass { color: #4caf50; }
+        .fail { color: #f44336; }
+        .test-result {
+            padding: 6px 12px;
+            margin: 4px 0;
+            border-radius: 4px;
+            background: #222244;
+            font-size: 15px;
+        }
+        .test-result.pass { border-left: 4px solid #4caf50; }
+        .test-result.fail { border-left: 4px solid #f44336; }
+        #game-container {
+            position: absolute;
+            left: -9999px;
+            top: -9999px;
+            width: 800px;
+            height: 600px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Random Game - Smoke Tests</h1>
+    <div id="summary">Running tests...</div>
+    <div id="results"></div>
+    <div id="game-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
+    <script src="main.js"></script>
+    <script>
+        (function() {
+            const results = [];
+            const resultsEl = document.getElementById('results');
+            const summaryEl = document.getElementById('summary');
+
+            function assert(name, fn) {
+                try {
+                    const result = fn();
+                    if (result === true) {
+                        results.push({ name, passed: true });
+                    } else {
+                        results.push({ name, passed: false, reason: result || 'Assertion failed' });
+                    }
+                } catch (e) {
+                    results.push({ name, passed: false, reason: e.message });
+                }
+            }
+
+            function render() {
+                const passed = results.filter(r => r.passed).length;
+                const failed = results.filter(r => !r.passed).length;
+                const total = results.length;
+
+                summaryEl.innerHTML =
+                    `<span class="pass">${passed} passed</span> / ` +
+                    `<span class="fail">${failed} failed</span> / ` +
+                    `${total} total`;
+
+                resultsEl.innerHTML = results.map(r => {
+                    const icon = r.passed ? '<span class="pass">&#10003;</span>' : '<span class="fail">&#10007;</span>';
+                    const detail = r.passed ? '' : ` &mdash; <span class="fail">${r.reason}</span>`;
+                    const cls = r.passed ? 'pass' : 'fail';
+                    return `<div class="test-result ${cls}">${icon} ${r.name}${detail}</div>`;
+                }).join('');
+            }
+
+            // --- Tests ---
+
+            // 1. Phaser game instance initializes
+            assert('Phaser game instance exists', () => {
+                return typeof game !== 'undefined' && game instanceof Phaser.Game ? true : 'game is not a Phaser.Game instance';
+            });
+
+            // 2. All expected scenes are registered
+            const expectedScenes = ['BootScene', 'MenuScene', 'LevelSelectScene', 'GameScene', 'LevelCompleteScene', 'GameCompleteScene'];
+            expectedScenes.forEach(sceneName => {
+                assert(`Scene "${sceneName}" is registered`, () => {
+                    const scene = game.scene.getScene(sceneName);
+                    return scene ? true : `Scene "${sceneName}" not found`;
+                });
+            });
+
+            // 3. LevelRegistry has entries for levels 1-100
+            assert('LevelRegistry has entries for levels 1 through 100', () => {
+                const missing = [];
+                for (let i = 1; i <= 100; i++) {
+                    if (!LevelRegistry[i]) missing.push(i);
+                }
+                return missing.length === 0 ? true : `Missing levels: ${missing.join(', ')}`;
+            });
+
+            // 4. Each level has 'type' and 'config' properties
+            assert('Every level has "type" and "config" properties', () => {
+                const invalid = [];
+                for (let i = 1; i <= 100; i++) {
+                    const entry = LevelRegistry[i];
+                    if (!entry) continue;
+                    if (!entry.type) invalid.push(`Level ${i}: missing type`);
+                    if (!entry.config) invalid.push(`Level ${i}: missing config`);
+                }
+                return invalid.length === 0 ? true : invalid.join('; ');
+            });
+
+            // 5. All puzzle types have handler code in GameScene
+            // We check that each unique type string from the registry appears somewhere in GameScene's create method source
+            assert('All puzzle types have handler code in GameScene', () => {
+                const types = new Set();
+                for (let i = 1; i <= 100; i++) {
+                    if (LevelRegistry[i] && LevelRegistry[i].type) {
+                        types.add(LevelRegistry[i].type);
+                    }
+                }
+
+                // Get the GameScene create method source
+                const gameScene = game.scene.getScene('GameScene');
+                const createSrc = gameScene.create.toString();
+
+                const missing = [];
+                types.forEach(t => {
+                    if (!createSrc.includes(t)) {
+                        missing.push(t);
+                    }
+                });
+                return missing.length === 0 ? true : `Types without handler code: ${missing.join(', ')}`;
+            });
+
+            // 6. Game config has reasonable dimensions
+            assert('Game config width <= 900', () => {
+                return game.config.width <= 900 ? true : `Width is ${game.config.width}`;
+            });
+
+            assert('Game config height <= 700', () => {
+                return game.config.height <= 700 ? true : `Height is ${game.config.height}`;
+            });
+
+            // Render results
+            render();
+        })();
+    </script>
+</body>
+</html>
