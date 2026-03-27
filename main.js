@@ -41,6 +41,7 @@ const LevelRegistry = {
     34: { type: 'reaction-time', config: { targets: 12, targetSize: 35, stayTime: 1800, timeLimit: 25, hasDecoys: true, moving: true } },
     35: { type: 'sequence-logic', config: { sequenceLength: 8, numChoices: 4, interleaved: true } },
     36: { type: 'maze', config: { width: 19, height: 19, cellSize: 28, fogOfWar: true, viewRadius: 3 } },
+    37: { type: 'sliding-puzzle', config: { size: 4, useImage: true } },
 };
 
 // ============================================================
@@ -2284,13 +2285,81 @@ class GameScene extends Phaser.Scene {
     createSlidingPuzzle(config) {
         const { width, height } = this.scale;
         const size = config.size;
+        const useImage = config.useImage || false;
         const tileSize = size <= 3 ? 90 : 70;
         const gap = 4;
         const totalSize = size * tileSize + (size - 1) * gap;
         const startX = (width - totalSize) / 2 + tileSize / 2;
         const startY = (height - totalSize) / 2 + tileSize / 2 - 10;
 
-        // Initialize solved board: 1..8, 0 = empty
+        // Generate tile color map for useImage mode
+        // Each tile value (1..size*size-1) maps to its solved (row, col) position
+        // The color is a unique gradient blend based on that position
+        let tileTextures = null;
+        if (useImage) {
+            tileTextures = {};
+            for (let val = 1; val < size * size; val++) {
+                const solvedR = Math.floor((val - 1) / size);
+                const solvedC = (val - 1) % size;
+                // Generate a texture for this tile using geometric pattern
+                const key = `slide_tile_${val}`;
+                if (this.textures.exists(key)) this.textures.remove(key);
+                const gfx = this.add.graphics();
+                const halfTile = tileSize / 2;
+
+                // Base color: blend from top-left (red/yellow) to bottom-right (blue/green)
+                const rFrac = solvedR / (size - 1);
+                const cFrac = solvedC / (size - 1);
+                const baseR = Math.floor(220 * (1 - rFrac) + 40 * rFrac);
+                const baseG = Math.floor(60 * (1 - cFrac) + 220 * cFrac);
+                const baseB = Math.floor(80 * (1 - rFrac) * (1 - cFrac) + 220 * rFrac * cFrac);
+                const baseColor = (baseR << 16) | (baseG << 8) | baseB;
+
+                // Fill background
+                gfx.fillStyle(baseColor, 1);
+                gfx.fillRect(0, 0, tileSize, tileSize);
+
+                // Draw geometric pattern: diagonal stripes
+                const stripeColor = ((Math.min(255, baseR + 40)) << 16) |
+                    ((Math.min(255, baseG + 40)) << 8) |
+                    Math.min(255, baseB + 40);
+                gfx.fillStyle(stripeColor, 0.4);
+                const stripeW = tileSize / 5;
+                for (let s = -tileSize; s < tileSize * 2; s += stripeW * 2) {
+                    gfx.fillTriangle(
+                        s, 0,
+                        s + stripeW, 0,
+                        s + tileSize + stripeW, tileSize
+                    );
+                    gfx.fillTriangle(
+                        s + stripeW, 0,
+                        s + tileSize + stripeW, tileSize,
+                        s + tileSize, tileSize
+                    );
+                }
+
+                // Draw a circle accent in the center
+                const accentR = Math.floor(255 * cFrac);
+                const accentG = Math.floor(255 * (1 - rFrac));
+                const accentB = Math.floor(200 * rFrac);
+                const accentColor = (accentR << 16) | (accentG << 8) | accentB;
+                gfx.fillStyle(accentColor, 0.5);
+                gfx.fillCircle(halfTile, halfTile, tileSize / 4);
+
+                // Small diamond in corner based on position
+                gfx.fillStyle(0xffffff, 0.3);
+                const dx = 12 + (solvedC * 6);
+                const dy = 12 + (solvedR * 6);
+                gfx.fillTriangle(dx, dy - 5, dx + 5, dy, dx, dy + 5);
+                gfx.fillTriangle(dx, dy - 5, dx - 5, dy, dx, dy + 5);
+
+                gfx.generateTexture(key, tileSize, tileSize);
+                gfx.destroy();
+                tileTextures[val] = key;
+            }
+        }
+
+        // Initialize solved board: 1..N*N-1, 0 = empty
         const board = [];
         for (let r = 0; r < size; r++) {
             board[r] = [];
@@ -2324,17 +2393,28 @@ class GameScene extends Phaser.Scene {
         }
 
         let moveCount = 0;
-        const moveText = this.add.text(width / 2, 70, 'Moves: 0', {
-            fontSize: '22px',
+        const instructionMsg = useImage ? 'Reassemble the pattern! No numbers — use colors as your guide.' : 'Moves: 0';
+        const moveText = this.add.text(width / 2, 70, instructionMsg, {
+            fontSize: useImage ? '16px' : '22px',
             fontFamily: 'Arial, sans-serif',
             color: '#aaaaaa',
         }).setOrigin(0.5);
+
+        const moveCountText = useImage ? this.add.text(width / 2, 92, 'Moves: 0', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5) : null;
 
         const tiles = [];
 
         const renderBoard = () => {
             // Clear old tiles
-            tiles.forEach(t => { t.bg.destroy(); t.label.destroy(); });
+            tiles.forEach(t => {
+                if (t.bg) t.bg.destroy();
+                if (t.label) t.label.destroy();
+                if (t.img) t.img.destroy();
+            });
             tiles.length = 0;
 
             for (let r = 0; r < size; r++) {
@@ -2345,17 +2425,29 @@ class GameScene extends Phaser.Scene {
                     const x = startX + c * (tileSize + gap);
                     const y = startY + r * (tileSize + gap);
 
-                    const bg = this.add.rectangle(x, y, tileSize, tileSize, 0x4a6a9a)
-                        .setInteractive({ useHandCursor: true });
+                    let bg, label = null, img = null;
 
-                    const label = this.add.text(x, y, `${val}`, {
-                        fontSize: size <= 3 ? '36px' : '28px',
-                        fontFamily: 'Arial, sans-serif',
-                        fontStyle: 'bold',
-                        color: '#ffffff',
-                    }).setOrigin(0.5);
+                    if (useImage && tileTextures[val]) {
+                        img = this.add.image(x, y, tileTextures[val])
+                            .setDisplaySize(tileSize, tileSize)
+                            .setInteractive({ useHandCursor: true });
 
-                    bg.on('pointerdown', () => {
+                        // Use a dummy label/bg for consistent cleanup
+                        bg = img;
+                    } else {
+                        bg = this.add.rectangle(x, y, tileSize, tileSize, 0x4a6a9a)
+                            .setInteractive({ useHandCursor: true });
+
+                        label = this.add.text(x, y, `${val}`, {
+                            fontSize: size <= 3 ? '36px' : '28px',
+                            fontFamily: 'Arial, sans-serif',
+                            fontStyle: 'bold',
+                            color: '#ffffff',
+                        }).setOrigin(0.5);
+                    }
+
+                    const tileObj = bg;
+                    tileObj.on('pointerdown', () => {
                         // Check if adjacent to empty
                         const dr = Math.abs(r - emptyR);
                         const dc = Math.abs(c - emptyC);
@@ -2366,7 +2458,11 @@ class GameScene extends Phaser.Scene {
                             emptyR = r;
                             emptyC = c;
                             moveCount++;
-                            moveText.setText(`Moves: ${moveCount}`);
+                            if (useImage) {
+                                moveCountText.setText(`Moves: ${moveCount}`);
+                            } else {
+                                moveText.setText(`Moves: ${moveCount}`);
+                            }
                             renderBoard();
 
                             // Check win
@@ -2378,16 +2474,18 @@ class GameScene extends Phaser.Scene {
                         }
                     });
 
-                    bg.on('pointerover', () => {
-                        const dr = Math.abs(r - emptyR);
-                        const dc = Math.abs(c - emptyC);
-                        if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
-                            bg.setFillStyle(0x6a8aba);
-                        }
-                    });
-                    bg.on('pointerout', () => bg.setFillStyle(0x4a6a9a));
+                    if (!useImage) {
+                        tileObj.on('pointerover', () => {
+                            const dr = Math.abs(r - emptyR);
+                            const dc = Math.abs(c - emptyC);
+                            if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                                bg.setFillStyle(0x6a8aba);
+                            }
+                        });
+                        tileObj.on('pointerout', () => bg.setFillStyle(0x4a6a9a));
+                    }
 
-                    tiles.push({ bg, label });
+                    tiles.push({ bg: useImage ? null : bg, label, img });
                 }
             }
         };
