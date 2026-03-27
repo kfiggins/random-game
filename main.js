@@ -118,6 +118,12 @@ class BootScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
+        // Clean up on shutdown
+        this.events.once('shutdown', () => {
+            this.tweens.killAll();
+            this.time.removeAllEvents();
+        });
+
         // Game title with stylized look
         const title = this.add.text(width / 2, height / 2 - 70, 'RANDOM GAME', {
             fontSize: '56px',
@@ -193,6 +199,12 @@ class MenuScene extends Phaser.Scene {
 
     create() {
         const { width, height } = this.scale;
+
+        // Clean up on shutdown
+        this.events.once('shutdown', () => {
+            this.tweens.killAll();
+            this.time.removeAllEvents();
+        });
 
         // Animated floating geometric shapes background
         this.createFloatingShapes(width, height);
@@ -405,6 +417,12 @@ class LevelSelectScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
+        // Clean up on shutdown
+        this.events.once('shutdown', () => {
+            this.tweens.killAll();
+            this.time.removeAllEvents();
+        });
+
         // Title
         this.add.text(width / 2, 28, 'SELECT A LEVEL', {
             fontSize: '30px',
@@ -557,6 +575,18 @@ class GameScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
+        // Guard against rapid scene transitions
+        this._sceneTransitioning = false;
+
+        // Clean up timers and tweens when this scene shuts down
+        this.events.once('shutdown', () => {
+            this.tweens.killAll();
+            this.time.removeAllEvents();
+            if (this.input && this.input.keyboard) {
+                this.input.keyboard.removeAllListeners();
+            }
+        });
+
         this.add.text(width / 2, 30, `Level ${this.level}`, {
             fontSize: '32px',
             fontFamily: 'Arial, sans-serif',
@@ -566,42 +596,36 @@ class GameScene extends Phaser.Scene {
         // Look up level in registry
         const levelData = LevelRegistry[this.level];
 
-        if (levelData && levelData.type === 'color-match') {
-            this.createColorMatchPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'memory-cards') {
-            this.createMemoryCardsPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'simon-says') {
-            this.createSimonSaysPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'sorting') {
-            this.createSortingPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'maze') {
-            this.createMazePuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'pattern-complete') {
-            this.createPatternCompletePuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'reaction-time') {
-            this.createReactionTimePuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'math') {
-            this.createMathPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'word-scramble') {
-            this.createWordScramblePuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'spot-difference') {
-            this.createSpotDifferencePuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'sliding-puzzle') {
-            this.createSlidingPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'sequence-logic') {
-            this.createSequenceLogicPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'light-toggle') {
-            this.createLightTogglePuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'color-chain') {
-            this.createColorChainPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'tower-of-hanoi') {
-            this.createTowerOfHanoiPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'jigsaw') {
-            this.createJigsawPuzzle(levelData.config);
-        } else if (levelData && levelData.type === 'multi-puzzle') {
-            this.createMultiPuzzleBoss(levelData.config);
-        } else if (levelData && levelData.type === 'final-boss') {
-            this.createFinalBossPuzzle(levelData.config);
+        // Map of puzzle type strings to their creation methods
+        const puzzleHandlers = {
+            'color-match': (cfg) => this.createColorMatchPuzzle(cfg),
+            'memory-cards': (cfg) => this.createMemoryCardsPuzzle(cfg),
+            'simon-says': (cfg) => this.createSimonSaysPuzzle(cfg),
+            'sorting': (cfg) => this.createSortingPuzzle(cfg),
+            'maze': (cfg) => this.createMazePuzzle(cfg),
+            'pattern-complete': (cfg) => this.createPatternCompletePuzzle(cfg),
+            'reaction-time': (cfg) => this.createReactionTimePuzzle(cfg),
+            'math': (cfg) => this.createMathPuzzle(cfg),
+            'word-scramble': (cfg) => this.createWordScramblePuzzle(cfg),
+            'spot-difference': (cfg) => this.createSpotDifferencePuzzle(cfg),
+            'sliding-puzzle': (cfg) => this.createSlidingPuzzle(cfg),
+            'sequence-logic': (cfg) => this.createSequenceLogicPuzzle(cfg),
+            'light-toggle': (cfg) => this.createLightTogglePuzzle(cfg),
+            'color-chain': (cfg) => this.createColorChainPuzzle(cfg),
+            'tower-of-hanoi': (cfg) => this.createTowerOfHanoiPuzzle(cfg),
+            'jigsaw': (cfg) => this.createJigsawPuzzle(cfg),
+            'multi-puzzle': (cfg) => this.createMultiPuzzleBoss(cfg),
+            'final-boss': (cfg) => this.createFinalBossPuzzle(cfg),
+        };
+
+        if (levelData && puzzleHandlers[levelData.type]) {
+            try {
+                puzzleHandlers[levelData.type](levelData.config);
+            } catch (e) {
+                console.error(`Level ${this.level} failed to load:`, e);
+                this.showLevelError();
+                return;
+            }
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -610,7 +634,7 @@ class GameScene extends Phaser.Scene {
             }).setOrigin(0.5);
 
             this.createButton(width / 2, height - 100, 'Complete Level', () => {
-                this.scene.start('LevelCompleteScene', { level: this.level });
+                this.safeSceneStart('LevelCompleteScene', { level: this.level });
             });
         } else {
             this.add.text(width / 2, height / 2 - 20, 'Puzzle Coming Soon!', {
@@ -626,14 +650,46 @@ class GameScene extends Phaser.Scene {
             }).setOrigin(0.5);
 
             this.createButton(width / 2, height - 100, 'Complete Level', () => {
-                this.scene.start('LevelCompleteScene', { level: this.level });
+                this.safeSceneStart('LevelCompleteScene', { level: this.level });
             });
         }
 
         // Back to Menu button
         this.createButton(width / 2, height - 40, 'Back to Menu', () => {
-            this.scene.start('MenuScene');
+            this.safeSceneStart('MenuScene');
         }, 0x5a3a3a, 0x7a5a5a);
+    }
+
+    // Prevent double scene transitions from rapid clicks
+    safeSceneStart(sceneKey, data) {
+        if (this._sceneTransitioning) return;
+        this._sceneTransitioning = true;
+        this.scene.start(sceneKey, data);
+    }
+
+    // Show a friendly error screen when a puzzle fails to load
+    showLevelError() {
+        const { width, height } = this.scale;
+
+        this.add.text(width / 2, height / 2 - 30, 'Level failed to load', {
+            fontSize: '28px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff6666',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, height / 2 + 10, 'Click to go back to menu', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Make the entire screen clickable to go back
+        const hitArea = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0)
+            .setInteractive({ useHandCursor: true });
+
+        hitArea.on('pointerdown', () => {
+            this.safeSceneStart('MenuScene');
+        });
     }
 
     createColorMatchPuzzle(config) {
@@ -13110,11 +13166,11 @@ class GameScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         this.createButton(width / 2, height / 2 + 30, 'Retry', () => {
-            this.scene.start('GameScene', { level: this.level });
+            this.safeSceneStart('GameScene', { level: this.level });
         });
 
         this.createButton(width / 2, height / 2 + 90, 'Back to Menu', () => {
-            this.scene.start('MenuScene');
+            this.safeSceneStart('MenuScene');
         }, 0x5a3a3a, 0x7a5a5a);
     }
 
@@ -17172,6 +17228,12 @@ class LevelCompleteScene extends Phaser.Scene {
     }
 
     create() {
+        // Clean up on shutdown
+        this.events.once('shutdown', () => {
+            this.tweens.killAll();
+            this.time.removeAllEvents();
+        });
+
         // If level 100 was just completed, go to the epic game completion screen
         if (this.level >= 100) {
             this.scene.start('GameCompleteScene');
@@ -17341,6 +17403,12 @@ class GameCompleteScene extends Phaser.Scene {
 
     create() {
         const { width, height } = this.scale;
+
+        // Clean up on shutdown
+        this.events.once('shutdown', () => {
+            this.tweens.killAll();
+            this.time.removeAllEvents();
+        });
 
         // Background flash
         const flash = this.add.rectangle(width / 2, height / 2, width, height, 0xffffff).setAlpha(0.8);
