@@ -16,6 +16,7 @@ const LevelRegistry = {
     9: { type: 'word-scramble', config: { wordLength: 4, showHint: true } },
     10: { type: 'spot-difference', config: { differences: 2, gridSize: 5 } },
     11: { type: 'color-match', config: { pairs: 5, colors: 6, timeLimit: 30 } },
+    12: { type: 'memory-cards', config: { rows: 3, cols: 4, timeLimit: 0 } },
 };
 
 // ============================================================
@@ -408,6 +409,8 @@ class GameScene extends Phaser.Scene {
             { name: 'Blue', hex: 0x4488ff },
             { name: 'Green', hex: 0x44dd44 },
             { name: 'Purple', hex: 0xaa44ff },
+            { name: 'Orange', hex: 0xff8844 },
+            { name: 'Cyan', hex: 0x44dddd },
         ];
 
         // Create pairs and shuffle
