@@ -60,6 +60,7 @@ const LevelRegistry = {
     53: { type: 'simon-says', config: { sequenceLength: 12, colors: 8, playbackSpeed: 350, replayAllowed: false } },
     54: { type: 'sliding-puzzle', config: { size: 5 } },
     55: { type: 'math', config: { problems: 5, mode: 'chain', timeLimit: 60 } },
+    56: { type: 'color-chain', config: { gridSize: 9, colors: 10, fillBoard: true } },
 };
 
 // ============================================================
@@ -5180,10 +5181,35 @@ class GameScene extends Phaser.Scene {
             color: '#666666',
         }).setOrigin(0.5);
 
-        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa];
+        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa, 0x88ff44, 0xffd700];
         let colorValues, endpoints;
 
-        if (gridSize === 7 && colors === 8 && fillBoard) {
+        if (gridSize === 9 && colors === 10 && fillBoard) {
+            // Hardcoded solvable 9x9 puzzle with 10 color pairs that fills all 81 cells
+            // Path 0 (red):    (0,0)→(1,0)→(2,0)→(2,1)→(1,1)→(0,1)→(0,2)→(0,3)
+            // Path 1 (green):  (1,2)→(1,3)→(1,4)→(0,4)→(0,5)→(0,6)→(1,6)→(1,5)
+            // Path 2 (blue):   (0,7)→(0,8)→(1,8)→(1,7)→(2,7)→(2,8)→(3,8)→(3,7)
+            // Path 3 (yellow): (2,2)→(2,3)→(2,4)→(2,5)→(2,6)→(3,6)→(3,5)→(3,4)→(3,3)
+            // Path 4 (purple): (3,0)→(3,1)→(3,2)→(4,2)→(4,1)→(4,0)→(5,0)→(5,1)→(5,2)
+            // Path 5 (orange): (4,3)→(4,4)→(4,5)→(4,6)→(4,7)→(4,8)→(5,8)→(5,7)
+            // Path 6 (cyan):   (5,3)→(5,4)→(5,5)→(5,6)→(6,6)→(6,5)→(6,4)→(6,3)
+            // Path 7 (pink):   (6,7)→(6,8)→(7,8)→(7,7)→(7,6)→(8,6)→(8,7)→(8,8)
+            // Path 8 (lime):   (6,0)→(6,1)→(6,2)→(7,2)→(7,1)→(7,0)→(8,0)→(8,1)→(8,2)
+            // Path 9 (gold):   (7,3)→(7,4)→(7,5)→(8,5)→(8,4)→(8,3)
+            colorValues = allColorValues.slice(0, 10);
+            endpoints = [
+                { color: 0, start: { r: 0, c: 0 }, end: { r: 0, c: 3 } },
+                { color: 1, start: { r: 1, c: 2 }, end: { r: 1, c: 5 } },
+                { color: 2, start: { r: 0, c: 7 }, end: { r: 3, c: 7 } },
+                { color: 3, start: { r: 2, c: 2 }, end: { r: 3, c: 3 } },
+                { color: 4, start: { r: 3, c: 0 }, end: { r: 5, c: 2 } },
+                { color: 5, start: { r: 4, c: 3 }, end: { r: 5, c: 7 } },
+                { color: 6, start: { r: 5, c: 3 }, end: { r: 6, c: 3 } },
+                { color: 7, start: { r: 6, c: 7 }, end: { r: 8, c: 8 } },
+                { color: 8, start: { r: 6, c: 0 }, end: { r: 8, c: 2 } },
+                { color: 9, start: { r: 7, c: 3 }, end: { r: 8, c: 3 } },
+            ];
+        } else if (gridSize === 7 && colors === 8 && fillBoard) {
             // Hardcoded solvable 7x7 puzzle with 8 color pairs that fills all 49 cells
             // Path 0 (red):    (0,0)→(0,1)→(1,1)→(1,0)→(2,0)→(3,0)
             // Path 1 (green):  (0,2)→(0,3)→(0,4)→(1,4)→(1,3)→(1,2)→(2,2)
@@ -5264,25 +5290,27 @@ class GameScene extends Phaser.Scene {
         let solved = false;
 
         // Drawing
-        const cellSize = gridSize <= 5 ? 70 : 58;
+        const cellSize = gridSize <= 5 ? 70 : gridSize <= 7 ? 58 : 44;
         const gap = 4;
         const totalSize = gridSize * cellSize + (gridSize - 1) * gap;
         const startX = (width - totalSize) / 2 + cellSize / 2;
-        const startY = 140 + cellSize / 2;
+        const startY = (gridSize <= 7 ? 140 : 115) + cellSize / 2;
 
         const cellGraphics = [];
         const dotGraphics = [];
         const pathGraphicsGroup = this.add.group();
 
         // Status text
-        const statusText = this.add.text(width / 2, startY + totalSize + 20, '', {
-            fontSize: '16px',
+        const infoGap = gridSize <= 7 ? 25 : 16;
+        const infoBase = startY + totalSize + (gridSize <= 7 ? 20 : 6);
+        const statusText = this.add.text(width / 2, infoBase, '', {
+            fontSize: gridSize <= 7 ? '16px' : '14px',
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
         }).setOrigin(0.5);
 
-        const pairsText = this.add.text(width / 2, startY + totalSize + 45, 'Pairs connected: 0 / ' + colors, {
-            fontSize: '16px',
+        const pairsText = this.add.text(width / 2, infoBase + infoGap, 'Pairs connected: 0 / ' + colors, {
+            fontSize: gridSize <= 7 ? '16px' : '14px',
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
         }).setOrigin(0.5);
@@ -5291,8 +5319,8 @@ class GameScene extends Phaser.Scene {
         const totalCells = gridSize * gridSize;
         let unfilledText = null;
         if (fillBoard) {
-            unfilledText = this.add.text(width / 2, startY + totalSize + 70, 'Unfilled cells: ' + totalCells, {
-                fontSize: '16px',
+            unfilledText = this.add.text(width / 2, infoBase + infoGap * 2, 'Unfilled cells: ' + totalCells, {
+                fontSize: gridSize <= 7 ? '16px' : '14px',
                 fontFamily: 'Arial, sans-serif',
                 color: '#ffdd44',
             }).setOrigin(0.5);
@@ -5407,7 +5435,8 @@ class GameScene extends Phaser.Scene {
 
                 // Draw endpoint dots
                 if (endpointMap[r][c] >= 0) {
-                    const dot = this.add.circle(x, y, 18, colorValues[endpointMap[r][c]])
+                    const dotRadius = gridSize <= 7 ? 18 : 14;
+                    const dot = this.add.circle(x, y, dotRadius, colorValues[endpointMap[r][c]])
                         .setStrokeStyle(2, 0xffffff);
                     dotGraphics[r][c] = dot;
                 }
