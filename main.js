@@ -70,6 +70,7 @@ const LevelRegistry = {
     63: { type: 'maze', config: { width: 27, height: 27, cellSize: 20, fogOfWar: true, viewRadius: 2, enemies: 5, traps: 6, timeLimit: 120, hasKeys: true, keys: 3 } },
     64: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, interleaved: true, rules: 3 } },
     65: { type: 'reaction-time', config: { targets: 15, targetSize: 20, stayTime: 1200, timeLimit: 20, hasDecoys: true, moving: true, shrinking: true } },
+    66: { type: 'pattern-complete', config: { patternLength: 16, numChoices: 8, is2D: true, fractal: true } },
 };
 
 // ============================================================
@@ -1668,6 +1669,11 @@ class GameScene extends Phaser.Scene {
             { name: 'Diamond', color: 0xffdd44, colorName: 'Yellow' },
         ];
 
+        if (is2D && config.fractal) {
+            this.createPatternCompleteFractal(config, shapeDefs);
+            return;
+        }
+
         if (is2D && config.perspective) {
             this.createPatternComplete3D(config, shapeDefs);
             return;
@@ -2269,6 +2275,341 @@ class GameScene extends Phaser.Scene {
         };
 
         // Initial hint
+        feedbackText.setText('Click a "?" cell to select it.').setColor('#aaaaaa');
+    }
+
+    createPatternCompleteFractal(config, baseShapeDefs) {
+        const { width, height } = this.scale;
+        const { numChoices } = config;
+        const gridSize = 4;
+        const numMissing = 4;
+
+        // Extended shape defs for 8 choices
+        const shapeDefs = [
+            ...baseShapeDefs,
+            { name: 'Pentagon', color: 0xff8844, colorName: 'Orange' },
+            { name: 'Hexagon', color: 0x44dddd, colorName: 'Cyan' },
+            { name: 'Star', color: 0xff44aa, colorName: 'Pink' },
+            { name: 'Cross', color: 0x88ff44, colorName: 'Lime' },
+        ];
+
+        // Instructions
+        this.add.text(width / 2, 38, 'Complete the fractal pattern!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 58, 'Each 2x2 quadrant mirrors the whole grid\'s pattern.', {
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#777777',
+        }).setOrigin(0.5);
+
+        // Draw shape helper
+        const drawShape = (x, y, shapeDef, size) => {
+            if (shapeDef.name === 'Circle') {
+                return this.add.circle(x, y, size / 2, shapeDef.color);
+            } else if (shapeDef.name === 'Square') {
+                return this.add.rectangle(x, y, size, size, shapeDef.color);
+            } else if (shapeDef.name === 'Triangle') {
+                return this.add.triangle(x, y, 0, size, size / 2, 0, size, size, shapeDef.color);
+            } else if (shapeDef.name === 'Diamond') {
+                return this.add.polygon(x, y, [
+                    0, -size / 2, size / 2, 0, 0, size / 2, -size / 2, 0,
+                ], shapeDef.color);
+            } else if (shapeDef.name === 'Pentagon') {
+                const pts = [];
+                for (let i = 0; i < 5; i++) {
+                    const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+                    pts.push(Math.cos(angle) * size / 2, Math.sin(angle) * size / 2);
+                }
+                return this.add.polygon(x, y, pts, shapeDef.color);
+            } else if (shapeDef.name === 'Hexagon') {
+                const pts = [];
+                for (let i = 0; i < 6; i++) {
+                    const angle = (Math.PI * 2 * i) / 6 - Math.PI / 6;
+                    pts.push(Math.cos(angle) * size / 2, Math.sin(angle) * size / 2);
+                }
+                return this.add.polygon(x, y, pts, shapeDef.color);
+            } else if (shapeDef.name === 'Star') {
+                const pts = [];
+                for (let i = 0; i < 10; i++) {
+                    const angle = (Math.PI * 2 * i) / 10 - Math.PI / 2;
+                    const r = i % 2 === 0 ? size / 2 : size / 4;
+                    pts.push(Math.cos(angle) * r, Math.sin(angle) * r);
+                }
+                return this.add.polygon(x, y, pts, shapeDef.color);
+            } else if (shapeDef.name === 'Cross') {
+                const t = size / 4;
+                const h = size / 2;
+                const pts = [
+                    -t, -h, t, -h, t, -t, h, -t, h, t, t, t,
+                    t, h, -t, h, -t, t, -h, t, -h, -t, -t, -t,
+                ];
+                return this.add.polygon(x, y, pts, shapeDef.color);
+            }
+        };
+
+        // Generate fractal pattern: pick 4 shapes for the 2x2 base pattern
+        // The 4x4 grid is made of four 2x2 quadrants, each following the same
+        // base pattern but with different shape sets that themselves follow the base pattern
+        const basePattern = Phaser.Utils.Array.Shuffle([0, 1, 2, 3]); // positions in 2x2
+        // Pick 4 distinct shapes for the "macro" level
+        const macroShapes = Phaser.Utils.Array.Shuffle([...shapeDefs]).slice(0, 4);
+
+        // Build the 4x4 grid with fractal self-similarity
+        // The macro 2x2 determines which shape family each quadrant uses
+        // Within each quadrant, the same 2x2 pattern determines the specific shape
+        const grid = [];
+        for (let r = 0; r < gridSize; r++) {
+            grid[r] = [];
+            for (let c = 0; c < gridSize; c++) {
+                // Which quadrant (0-3)
+                const qr = Math.floor(r / 2);
+                const qc = Math.floor(c / 2);
+                const quadIdx = basePattern[qr * 2 + qc];
+
+                // Position within quadrant (0-3)
+                const lr = r % 2;
+                const lc = c % 2;
+                const localIdx = basePattern[lr * 2 + lc];
+
+                // Combine: use quadrant to pick a color family offset,
+                // and local position to pick the specific shape
+                const shapeIdx = (quadIdx + localIdx) % shapeDefs.length;
+                grid[r][c] = shapeDefs[shapeIdx];
+            }
+        }
+
+        // Pick missing cells — one from each quadrant for balance
+        const missingCells = [];
+        const quadrants = [[0,0], [0,1], [1,0], [1,1]];
+        Phaser.Utils.Array.Shuffle(quadrants);
+        for (let i = 0; i < numMissing; i++) {
+            const [qr, qc] = quadrants[i % quadrants.length];
+            const lr = Phaser.Math.Between(0, 1);
+            const lc = Phaser.Math.Between(0, 1);
+            const r = qr * 2 + lr;
+            const c = qc * 2 + lc;
+            // Avoid duplicates
+            if (!missingCells.some(m => m.r === r && m.c === c)) {
+                missingCells.push({ r, c });
+            } else {
+                // Use the other cell in the quadrant
+                const altR = qr * 2 + (1 - lr);
+                const altC = qc * 2 + (1 - lc);
+                missingCells.push({ r: altR, c: altC });
+            }
+        }
+        const missingSet = new Set(missingCells.map(m => `${m.r},${m.c}`));
+
+        // Draw the grid
+        const shapeSize = 55;
+        const padding = 12;
+        const quadPadding = 8; // extra gap between quadrants
+        const totalGridW = gridSize * shapeSize + (gridSize - 1) * padding + quadPadding;
+        const totalGridH = totalGridW;
+        const gridStartX = (width - totalGridW) / 2 + shapeSize / 2;
+        const gridStartY = 85 + shapeSize / 2;
+
+        const getCellPos = (r, c) => {
+            const extraX = c >= 2 ? quadPadding : 0;
+            const extraY = r >= 2 ? quadPadding : 0;
+            return {
+                x: gridStartX + c * (shapeSize + padding) + extraX,
+                y: gridStartY + r * (shapeSize + padding) + extraY,
+            };
+        };
+
+        // Draw quadrant borders for visual clarity
+        for (let qr = 0; qr < 2; qr++) {
+            for (let qc = 0; qc < 2; qc++) {
+                const topLeft = getCellPos(qr * 2, qc * 2);
+                const botRight = getCellPos(qr * 2 + 1, qc * 2 + 1);
+                const cx = (topLeft.x + botRight.x) / 2;
+                const cy = (topLeft.y + botRight.y) / 2;
+                const qw = botRight.x - topLeft.x + shapeSize + 8;
+                const qh = botRight.y - topLeft.y + shapeSize + 8;
+                this.add.rectangle(cx, cy, qw, qh)
+                    .setStrokeStyle(1, 0x555577)
+                    .setFillStyle(0x000000, 0);
+            }
+        }
+
+        const placeholders = {};
+        const questionMarks = {};
+
+        for (let r = 0; r < gridSize; r++) {
+            for (let c = 0; c < gridSize; c++) {
+                const { x, y } = getCellPos(r, c);
+                const key = `${r},${c}`;
+
+                if (missingSet.has(key)) {
+                    const ph = this.add.rectangle(x, y, shapeSize, shapeSize, 0x3a3a6a)
+                        .setInteractive({ useHandCursor: true });
+                    const qm = this.add.text(x, y, '?', {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#888888',
+                    }).setOrigin(0.5);
+                    placeholders[key] = ph;
+                    questionMarks[key] = qm;
+                } else {
+                    drawShape(x, y, grid[r][c], shapeSize - 6);
+                }
+            }
+        }
+
+        // State tracking
+        let selectedCell = null;
+        let solvedCount = 0;
+        const solvedCells = new Set();
+        let selectionOutline = null;
+
+        const feedbackText = this.add.text(width / 2, height - 38, '', {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        const progressText = this.add.text(width / 2, height - 60, `Filled: 0 / ${numMissing}`, {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Click handler for placeholder cells
+        missingCells.forEach(({ r, c }) => {
+            const key = `${r},${c}`;
+            const ph = placeholders[key];
+
+            ph.on('pointerdown', () => {
+                if (solvedCells.has(key)) return;
+                if (selectionOutline) selectionOutline.destroy();
+
+                selectedCell = { r, c, key };
+                const { x, y } = getCellPos(r, c);
+                selectionOutline = this.add.rectangle(x, y, shapeSize + 6, shapeSize + 6)
+                    .setStrokeStyle(3, 0xffffff)
+                    .setFillStyle(0x000000, 0);
+
+                feedbackText.setText(`Pick shape for row ${r + 1}, col ${c + 1}`).setColor('#aaaaaa');
+                updateChoices();
+            });
+        });
+
+        // Build choices area
+        const choiceY = height - 100;
+        const choiceSize = 42;
+        const choicePadding = 14;
+        const choiceTotalW = numChoices * choiceSize + (numChoices - 1) * choicePadding;
+        const choiceStartX = (width - choiceTotalW) / 2 + choiceSize / 2;
+
+        // Precompute choices for each missing cell
+        const cellChoices = {};
+        missingCells.forEach(({ r, c }) => {
+            const key = `${r},${c}`;
+            const correct = grid[r][c];
+            const others = shapeDefs.filter(s => s.name !== correct.name);
+            Phaser.Utils.Array.Shuffle(others);
+            const choices = [correct, ...others.slice(0, numChoices - 1)];
+            Phaser.Utils.Array.Shuffle(choices);
+            cellChoices[key] = choices;
+        });
+
+        const choiceBgs = [];
+        const choiceShapeObjs = [];
+        const choiceLabels = [];
+
+        for (let i = 0; i < numChoices; i++) {
+            const cx = choiceStartX + i * (choiceSize + choicePadding);
+            const bg = this.add.rectangle(cx, choiceY, choiceSize + 8, choiceSize + 8, 0x2a2a4a)
+                .setInteractive({ useHandCursor: true });
+            choiceBgs.push(bg);
+            choiceShapeObjs.push(null);
+
+            const label = this.add.text(cx, choiceY + choiceSize / 2 + 10, '', {
+                fontSize: '10px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            choiceLabels.push(label);
+
+            bg.on('pointerover', () => {
+                if (selectedCell && !solvedCells.has(selectedCell.key)) bg.setFillStyle(0x4a4a6a);
+            });
+            bg.on('pointerout', () => {
+                bg.setFillStyle(0x2a2a4a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (!selectedCell || solvedCells.has(selectedCell.key)) return;
+
+                const key = selectedCell.key;
+                const choices = cellChoices[key];
+                const picked = choices[i];
+                const correct = grid[selectedCell.r][selectedCell.c];
+
+                if (picked.name === correct.name) {
+                    solvedCells.add(key);
+                    solvedCount++;
+                    progressText.setText(`Filled: ${solvedCount} / ${numMissing}`);
+
+                    const { x: sx, y: sy } = getCellPos(selectedCell.r, selectedCell.c);
+                    placeholders[key].setVisible(false);
+                    questionMarks[key].setVisible(false);
+                    drawShape(sx, sy, correct, shapeSize - 6);
+
+                    if (selectionOutline) {
+                        selectionOutline.destroy();
+                        selectionOutline = null;
+                    }
+                    selectedCell = null;
+
+                    if (solvedCount >= numMissing) {
+                        feedbackText.setText('All correct!').setColor('#44dd44');
+                        this.time.delayedCall(600, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    } else {
+                        feedbackText.setText('Correct! Pick the next gap.').setColor('#44dd44');
+                        clearChoices();
+                    }
+                } else {
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Try again.').setColor('#ff4444');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x2a2a4a);
+                    });
+                }
+            });
+        }
+
+        const clearChoices = () => {
+            for (let i = 0; i < numChoices; i++) {
+                if (choiceShapeObjs[i]) {
+                    choiceShapeObjs[i].destroy();
+                    choiceShapeObjs[i] = null;
+                }
+                choiceLabels[i].setText('');
+            }
+        };
+
+        const updateChoices = () => {
+            if (!selectedCell) return;
+            const choices = cellChoices[selectedCell.key];
+
+            for (let i = 0; i < numChoices; i++) {
+                const cx = choiceStartX + i * (choiceSize + choicePadding);
+                if (choiceShapeObjs[i]) {
+                    choiceShapeObjs[i].destroy();
+                }
+                choiceShapeObjs[i] = drawShape(cx, choiceY, choices[i], choiceSize - 10);
+                choiceLabels[i].setText(choices[i].colorName);
+            }
+        };
+
         feedbackText.setText('Click a "?" cell to select it.').setColor('#aaaaaa');
     }
 
