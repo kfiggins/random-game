@@ -72,6 +72,7 @@ const LevelRegistry = {
     65: { type: 'reaction-time', config: { targets: 15, targetSize: 20, stayTime: 1200, timeLimit: 20, hasDecoys: true, moving: true, shrinking: true } },
     66: { type: 'pattern-complete', config: { patternLength: 16, numChoices: 8, is2D: true, fractal: true } },
     67: { type: 'word-scramble', config: { mode: 'crossword', words: 4 } },
+    68: { type: 'math', config: { problems: 3, mode: 'equation-builder', timeLimit: 90 } },
 };
 
 // ============================================================
@@ -2861,6 +2862,10 @@ class GameScene extends Phaser.Scene {
             return this.createChainMathPuzzle(config);
         }
 
+        if (config.mode === 'equation-builder') {
+            return this.createEquationBuilderPuzzle(config);
+        }
+
         const { problems, operations, maxNum, timeLimit } = config;
 
         // Instructions
@@ -3829,6 +3834,467 @@ class GameScene extends Phaser.Scene {
                 });
 
                 choiceButtons.push({ bg, text: txt });
+            });
+        };
+
+        showProblem();
+    }
+
+    createEquationBuilderPuzzle(config) {
+        const { width, height } = this.scale;
+        const { problems, timeLimit } = config;
+
+        this.add.text(width / 2, 50, 'Build an equation that equals the target!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 75, 'Drag numbers and operators into the slots', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#666666',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2 + 200, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.mathCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.mathCleanup = () => {
+            timerEvent.remove(false);
+        };
+
+        let currentProblem = 0;
+
+        const progressText = this.add.text(width / 2 - 200, height - 80, `Round 1/${problems}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        let dynamicObjects = [];
+
+        const clearDynamic = () => {
+            dynamicObjects.forEach(obj => obj.destroy());
+            dynamicObjects = [];
+        };
+
+        // Generate a solvable equation-builder problem
+        const generateProblem = (round) => {
+            // Increasing complexity per round
+            // Round 0: target 10-50, small numbers
+            // Round 1: target 20-100, medium numbers
+            // Round 2: target 50-200, larger numbers
+            const operators = ['+', '-', '×', '÷'];
+            let target, numbers;
+
+            if (round === 0) {
+                // Simple: pick 2 numbers and an operator that produce a nice result
+                const a = Phaser.Math.Between(2, 12);
+                const b = Phaser.Math.Between(2, 12);
+                const op = ['+', '×'][Phaser.Math.Between(0, 1)];
+                target = op === '+' ? a + b : a * b;
+                // Give 5 numbers including a and b, plus 3 distractors
+                const extras = [];
+                while (extras.length < 3) {
+                    const e = Phaser.Math.Between(1, 15);
+                    if (e !== a && e !== b && !extras.includes(e)) extras.push(e);
+                }
+                numbers = Phaser.Utils.Array.Shuffle([a, b, ...extras]);
+            } else if (round === 1) {
+                // Medium: a op1 b op2 c, two operations
+                const a = Phaser.Math.Between(3, 15);
+                const b = Phaser.Math.Between(2, 10);
+                const c = Phaser.Math.Between(2, 10);
+                // Use a * b + c or a + b * c for interesting targets
+                const pattern = Phaser.Math.Between(0, 1);
+                if (pattern === 0) {
+                    target = a * b + c;
+                } else {
+                    target = a + b * c;
+                }
+                const extras = [];
+                while (extras.length < 2) {
+                    const e = Phaser.Math.Between(1, 20);
+                    if (e !== a && e !== b && e !== c && !extras.includes(e)) extras.push(e);
+                }
+                numbers = Phaser.Utils.Array.Shuffle([a, b, c, ...extras]);
+            } else {
+                // Hard: larger numbers, a * b + c * d style
+                const a = Phaser.Math.Between(5, 20);
+                const b = Phaser.Math.Between(2, 12);
+                const c = Phaser.Math.Between(2, 10);
+                target = a * b + c;
+                const extras = [];
+                while (extras.length < 2) {
+                    const e = Phaser.Math.Between(1, 25);
+                    if (e !== a && e !== b && e !== c && !extras.includes(e)) extras.push(e);
+                }
+                numbers = Phaser.Utils.Array.Shuffle([a, b, c, ...extras]);
+            }
+
+            return { target, numbers, operators };
+        };
+
+        const showProblem = () => {
+            clearDynamic();
+            progressText.setText(`Round ${currentProblem + 1}/${problems}`);
+
+            const { target, numbers, operators } = generateProblem(currentProblem);
+
+            // Display target
+            const targetLabel = this.add.text(width / 2, 115, `Target: ${target}`, {
+                fontSize: '36px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffdd44',
+            }).setOrigin(0.5);
+            dynamicObjects.push(targetLabel);
+
+            // Equation slots area
+            const slotY = 220;
+            const slotWidth = 60;
+            const slotHeight = 50;
+            const slotSpacing = 70;
+            // Max expression: n op n op n op n op n = 5 numbers + 4 operators = 9 slots
+            const maxSlots = 9;
+            const slotsStartX = width / 2 - ((maxSlots - 1) * slotSpacing) / 2;
+
+            const slots = [];
+            for (let i = 0; i < maxSlots; i++) {
+                const sx = slotsStartX + i * slotSpacing;
+                const isOperatorSlot = i % 2 === 1;
+                const slotBg = this.add.rectangle(sx, slotY, slotWidth, slotHeight, isOperatorSlot ? 0x3a5a3a : 0x3a3a5a)
+                    .setStrokeStyle(2, 0x888888);
+                const slotText = this.add.text(sx, slotY, '', {
+                    fontSize: '24px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                const slotLabel = this.add.text(sx, slotY + 32, isOperatorSlot ? 'op' : 'num', {
+                    fontSize: '10px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#555555',
+                }).setOrigin(0.5);
+
+                slots.push({ bg: slotBg, text: slotText, value: null, type: isOperatorSlot ? 'op' : 'num', sourceItem: null });
+                dynamicObjects.push(slotBg, slotText, slotLabel);
+            }
+
+            // Number tiles (draggable)
+            const numY = 330;
+            const numSpacing = 80;
+            const numStartX = width / 2 - ((numbers.length - 1) * numSpacing) / 2;
+            const numberItems = [];
+
+            numbers.forEach((num, i) => {
+                const nx = numStartX + i * numSpacing;
+                const bg = this.add.rectangle(nx, numY, 60, 50, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true, draggable: true });
+                const txt = this.add.text(nx, numY, `${num}`, {
+                    fontSize: '26px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                txt.setInteractive({ useHandCursor: true, draggable: true });
+
+                const item = { bg, text: txt, value: num, type: 'num', originX: nx, originY: numY, inSlot: null };
+                numberItems.push(item);
+                dynamicObjects.push(bg, txt);
+
+                // Make draggable
+                this.input.setDraggable(bg);
+                this.input.setDraggable(txt);
+
+                const dragHandler = (pointer, dragX, dragY) => {
+                    bg.setPosition(dragX, dragY);
+                    txt.setPosition(dragX, dragY);
+                };
+
+                bg.on('drag', dragHandler);
+                txt.on('drag', dragHandler);
+
+                const dropHandler = () => {
+                    // Check if dropped on a number slot
+                    let placed = false;
+                    for (const slot of slots) {
+                        if (slot.type !== 'num') continue;
+                        const dist = Phaser.Math.Distance.Between(bg.x, bg.y, slot.bg.x, slot.bg.y);
+                        if (dist < 40) {
+                            // If slot already occupied, return old item
+                            if (slot.sourceItem) {
+                                const old = slot.sourceItem;
+                                old.bg.setPosition(old.originX, old.originY);
+                                old.text.setPosition(old.originX, old.originY);
+                                old.bg.setAlpha(1);
+                                old.text.setAlpha(1);
+                                old.inSlot = null;
+                            }
+                            // If this item was in another slot, clear it
+                            if (item.inSlot) {
+                                item.inSlot.value = null;
+                                item.inSlot.text.setText('');
+                                item.inSlot.sourceItem = null;
+                            }
+                            slot.value = num;
+                            slot.text.setText(`${num}`);
+                            slot.sourceItem = item;
+                            item.inSlot = slot;
+                            bg.setPosition(slot.bg.x, slot.bg.y);
+                            txt.setPosition(slot.bg.x, slot.bg.y);
+                            bg.setAlpha(0.5);
+                            txt.setAlpha(1);
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        // Return to origin
+                        if (item.inSlot) {
+                            item.inSlot.value = null;
+                            item.inSlot.text.setText('');
+                            item.inSlot.sourceItem = null;
+                            item.inSlot = null;
+                        }
+                        bg.setPosition(item.originX, item.originY);
+                        txt.setPosition(item.originX, item.originY);
+                        bg.setAlpha(1);
+                        txt.setAlpha(1);
+                    }
+                };
+
+                bg.on('dragend', dropHandler);
+                txt.on('dragend', dropHandler);
+            });
+
+            // Operator tiles (draggable)
+            const opY = 420;
+            const opSpacing = 80;
+            const opStartX = width / 2 - ((operators.length - 1) * opSpacing) / 2;
+
+            operators.forEach((op, i) => {
+                const ox = opStartX + i * opSpacing;
+                const bg = this.add.rectangle(ox, opY, 50, 50, 0x5a3a5a)
+                    .setInteractive({ useHandCursor: true, draggable: true });
+                const txt = this.add.text(ox, opY, op === '×' ? '×' : op === '÷' ? '÷' : op, {
+                    fontSize: '28px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffaaff',
+                }).setOrigin(0.5);
+                txt.setInteractive({ useHandCursor: true, draggable: true });
+
+                const item = { bg, text: txt, value: op, type: 'op', originX: ox, originY: opY, inSlot: null };
+                dynamicObjects.push(bg, txt);
+
+                this.input.setDraggable(bg);
+                this.input.setDraggable(txt);
+
+                const dragHandler = (pointer, dragX, dragY) => {
+                    bg.setPosition(dragX, dragY);
+                    txt.setPosition(dragX, dragY);
+                };
+
+                bg.on('drag', dragHandler);
+                txt.on('drag', dragHandler);
+
+                const dropHandler = () => {
+                    let placed = false;
+                    for (const slot of slots) {
+                        if (slot.type !== 'op') continue;
+                        const dist = Phaser.Math.Distance.Between(bg.x, bg.y, slot.bg.x, slot.bg.y);
+                        if (dist < 40) {
+                            if (slot.sourceItem) {
+                                const old = slot.sourceItem;
+                                old.bg.setPosition(old.originX, old.originY);
+                                old.text.setPosition(old.originX, old.originY);
+                                old.bg.setAlpha(1);
+                                old.text.setAlpha(1);
+                                old.inSlot = null;
+                            }
+                            if (item.inSlot) {
+                                item.inSlot.value = null;
+                                item.inSlot.text.setText('');
+                                item.inSlot.sourceItem = null;
+                            }
+                            slot.value = op;
+                            slot.text.setText(op === '×' ? '×' : op === '÷' ? '÷' : op);
+                            slot.sourceItem = item;
+                            item.inSlot = slot;
+                            bg.setPosition(slot.bg.x, slot.bg.y);
+                            txt.setPosition(slot.bg.x, slot.bg.y);
+                            bg.setAlpha(0.5);
+                            txt.setAlpha(1);
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        if (item.inSlot) {
+                            item.inSlot.value = null;
+                            item.inSlot.text.setText('');
+                            item.inSlot.sourceItem = null;
+                            item.inSlot = null;
+                        }
+                        bg.setPosition(item.originX, item.originY);
+                        txt.setPosition(item.originX, item.originY);
+                        bg.setAlpha(1);
+                        txt.setAlpha(1);
+                    }
+                };
+
+                bg.on('dragend', dropHandler);
+                txt.on('dragend', dropHandler);
+            });
+
+            // Evaluate equation helper
+            const evaluateSlots = () => {
+                // Collect filled slots from left to right, stopping at first empty
+                const tokens = [];
+                for (let i = 0; i < maxSlots; i++) {
+                    if (slots[i].value === null) break;
+                    tokens.push(slots[i].value);
+                }
+                // Must have at least 3 tokens (num op num) and odd count
+                if (tokens.length < 3 || tokens.length % 2 === 0) return null;
+
+                // Evaluate with PEMDAS
+                // First pass: handle × and ÷
+                const reduced = [tokens[0]];
+                for (let i = 1; i < tokens.length; i += 2) {
+                    const op = tokens[i];
+                    const val = tokens[i + 1];
+                    if (val === undefined) return null;
+                    if (op === '×') {
+                        reduced[reduced.length - 1] = reduced[reduced.length - 1] * val;
+                    } else if (op === '÷') {
+                        if (val === 0) return null;
+                        reduced[reduced.length - 1] = reduced[reduced.length - 1] / val;
+                    } else {
+                        reduced.push(op);
+                        reduced.push(val);
+                    }
+                }
+
+                // Second pass: handle + and -
+                let result = reduced[0];
+                for (let i = 1; i < reduced.length; i += 2) {
+                    const op = reduced[i];
+                    const val = reduced[i + 1];
+                    if (op === '+') result += val;
+                    else if (op === '-') result -= val;
+                }
+                return result;
+            };
+
+            // Feedback text
+            let feedbackText = null;
+
+            // Check button
+            const checkBtn = this.add.rectangle(width / 2, 500, 160, 50, 0x4a8a4a)
+                .setInteractive({ useHandCursor: true });
+            const checkLabel = this.add.text(width / 2, 500, 'Check', {
+                fontSize: '24px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            dynamicObjects.push(checkBtn, checkLabel);
+
+            checkBtn.on('pointerover', () => checkBtn.setFillStyle(0x6aaa6a));
+            checkBtn.on('pointerout', () => checkBtn.setFillStyle(0x4a8a4a));
+
+            checkBtn.on('pointerdown', () => {
+                const result = evaluateSlots();
+                if (feedbackText) { feedbackText.destroy(); }
+
+                if (result === null) {
+                    feedbackText = this.add.text(width / 2, 545, 'Fill in at least: number op number', {
+                        fontSize: '16px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffaa44',
+                    }).setOrigin(0.5);
+                    dynamicObjects.push(feedbackText);
+                } else if (Math.abs(result - target) < 0.0001) {
+                    feedbackText = this.add.text(width / 2, 545, 'Correct!', {
+                        fontSize: '24px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#44dd44',
+                    }).setOrigin(0.5);
+                    dynamicObjects.push(feedbackText);
+
+                    // Disable interactions
+                    checkBtn.disableInteractive();
+
+                    currentProblem++;
+                    if (currentProblem >= problems) {
+                        timerEvent.remove(false);
+                        this.mathCleanup = null;
+                        this.time.delayedCall(800, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    } else {
+                        this.time.delayedCall(800, () => {
+                            showProblem();
+                        });
+                    }
+                } else {
+                    feedbackText = this.add.text(width / 2, 545, `= ${Number.isInteger(result) ? result : result.toFixed(2)}, not ${target}. Try again!`, {
+                        fontSize: '18px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ff4444',
+                    }).setOrigin(0.5);
+                    dynamicObjects.push(feedbackText);
+                }
+            });
+
+            // Clear button
+            const clearBtn = this.add.rectangle(width / 2 + 120, 500, 100, 50, 0x8a4a4a)
+                .setInteractive({ useHandCursor: true });
+            const clearLabel = this.add.text(width / 2 + 120, 500, 'Clear', {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            dynamicObjects.push(clearBtn, clearLabel);
+
+            clearBtn.on('pointerover', () => clearBtn.setFillStyle(0xaa6a6a));
+            clearBtn.on('pointerout', () => clearBtn.setFillStyle(0x8a4a4a));
+
+            clearBtn.on('pointerdown', () => {
+                // Return all items to origin
+                slots.forEach(slot => {
+                    if (slot.sourceItem) {
+                        const item = slot.sourceItem;
+                        item.bg.setPosition(item.originX, item.originY);
+                        item.text.setPosition(item.originX, item.originY);
+                        item.bg.setAlpha(1);
+                        item.text.setAlpha(1);
+                        item.inSlot = null;
+                    }
+                    slot.value = null;
+                    slot.text.setText('');
+                    slot.sourceItem = null;
+                });
+                if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
             });
         };
 
