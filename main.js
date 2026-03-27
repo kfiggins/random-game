@@ -86,6 +86,7 @@ const LevelRegistry = {
     79: { type: 'tower-of-hanoi', config: { discs: 8, timeLimit: 300 } },
     80: { type: 'multi-puzzle', config: { stages: 6, timeLimit: 200 } },
     81: { type: 'color-chain', config: { gridSize: 12, colors: 15, fillBoard: true, timeLimit: 240 } },
+    82: { type: 'reaction-time', config: { targets: 20, targetSize: 15, stayTime: 800, timeLimit: 15, hasDecoys: true, moving: true, shrinking: true, decoyRatio: 2 } },
 };
 
 // ============================================================
@@ -2817,10 +2818,21 @@ class GameScene extends Phaser.Scene {
 
     createReactionTimePuzzle(config) {
         const { width, height } = this.scale;
-        const { targets, targetSize, stayTime, timeLimit, hasDecoys, moving, shrinking } = config;
+        const { targets, targetSize, stayTime, timeLimit, hasDecoys, moving, shrinking, decoyRatio } = config;
 
         const targetColors = [0x44dd44, 0x4488ff, 0xffdd44, 0xff44ff, 0x44dddd];
-        const requiredScore = shrinking ? 10 : (moving ? 8 : (hasDecoys ? 5 : 3));
+        const requiredScore = decoyRatio ? 15 : (shrinking ? 10 : (moving ? 8 : (hasDecoys ? 5 : 3)));
+
+        // Pre-determine decoy sequence when decoyRatio is set
+        const numDecoys = decoyRatio ? targets * decoyRatio : 0;
+        const totalItems = decoyRatio ? targets + numDecoys : targets;
+        let decoySequence = null;
+        if (decoyRatio) {
+            decoySequence = [];
+            for (let i = 0; i < targets; i++) decoySequence.push(false);
+            for (let i = 0; i < numDecoys; i++) decoySequence.push(true);
+            Phaser.Utils.Array.Shuffle(decoySequence);
+        }
 
         // Instructions
         const instructions = shrinking
@@ -2848,7 +2860,7 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
         }).setOrigin(0.5);
 
-        const remainText = this.add.text(width / 2, height - 80, `Remaining: ${targets}`, {
+        const remainText = this.add.text(width / 2, height - 80, `Remaining: ${totalItems}`, {
             fontSize: '22px',
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
@@ -2882,7 +2894,7 @@ class GameScene extends Phaser.Scene {
         const advanceAfterTarget = () => {
             if (!gameOver) {
                 this.time.delayedCall(400, () => {
-                    if (targetsShown >= targets) {
+                    if (targetsShown >= totalItems) {
                         gameOver = true;
                         timerEvent.remove(false);
                         this.handleReactionTimeEnd(score, targets, requiredScore);
@@ -2894,13 +2906,13 @@ class GameScene extends Phaser.Scene {
         };
 
         const showTarget = () => {
-            if (gameOver || targetsShown >= targets) return;
+            if (gameOver || targetsShown >= totalItems) return;
 
-            const isDecoy = hasDecoys && Math.random() < 0.35;
+            const isDecoy = decoySequence ? decoySequence[targetsShown] : (hasDecoys && Math.random() < 0.35);
             const colorIndex = targetsShown % targetColors.length;
             const color = isDecoy ? 0xff4444 : targetColors[colorIndex];
             targetsShown++;
-            remainText.setText(`Remaining: ${targets - targetsShown}`);
+            remainText.setText(`Remaining: ${totalItems - targetsShown}`);
 
             // Random position within play area (avoid edges and HUD)
             const margin = targetSize + 20;
