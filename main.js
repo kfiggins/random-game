@@ -42,6 +42,7 @@ const LevelRegistry = {
     35: { type: 'sequence-logic', config: { sequenceLength: 8, numChoices: 4, interleaved: true } },
     36: { type: 'maze', config: { width: 19, height: 19, cellSize: 28, fogOfWar: true, viewRadius: 3 } },
     37: { type: 'sliding-puzzle', config: { size: 4, useImage: true } },
+    38: { type: 'word-scramble', config: { wordLength: 7, showHint: false, multiWord: true, wordCount: 2 } },
 };
 
 // ============================================================
@@ -1995,7 +1996,12 @@ class GameScene extends Phaser.Scene {
 
     createWordScramblePuzzle(config) {
         const { width, height } = this.scale;
-        const { wordLength, showHint } = config;
+        const { wordLength, showHint, multiWord, wordCount } = config;
+
+        if (multiWord && wordCount === 2) {
+            this.createMultiWordScramblePuzzle(config);
+            return;
+        }
 
         const wordsByLength = {
             4: ['game', 'play', 'code', 'fish', 'star', 'moon', 'tree', 'bird', 'cake', 'lion'],
@@ -2155,6 +2161,252 @@ class GameScene extends Phaser.Scene {
                     answerSlots[i]._txt.setText('');
                 }
             }
+        });
+    }
+
+    createMultiWordScramblePuzzle(config) {
+        const { width, height } = this.scale;
+
+        const wordPairs = [
+            ['fire', 'cold'],
+            ['dark', 'glow'],
+            ['fish', 'pond'],
+            ['wind', 'calm'],
+        ];
+        const pair = Phaser.Utils.Array.GetRandom(wordPairs);
+        const targetWord1 = pair[0];
+        const targetWord2 = pair[1];
+        const allLetters = (targetWord1 + targetWord2).split('');
+
+        // Scramble all letters together
+        let scrambled = [...allLetters];
+        let attempts = 0;
+        do {
+            scrambled = Phaser.Utils.Array.Shuffle([...allLetters]);
+            attempts++;
+        } while (scrambled.join('') === allLetters.join('') && attempts < 20);
+
+        // Instructions
+        this.add.text(width / 2, 60, 'Unscramble TWO words!', {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 88, 'Form two 4-letter words from the scrambled letters', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#777777',
+        }).setOrigin(0.5);
+
+        const tileSize = 56;
+        const tileSpacing = 70;
+        const scrambleY = 160;
+        const scrambleStartX = width / 2 - (tileSpacing * (scrambled.length - 1)) / 2;
+
+        const wordLen = 4;
+        const answer1StartX = width / 2 - (tileSpacing * (wordLen - 1)) / 2;
+        const answer1Y = 280;
+        const answer2Y = 380;
+
+        // State for both answer rows
+        const answer1 = [null, null, null, null];
+        const answer2 = [null, null, null, null];
+        const answerSlots1 = [];
+        const answerSlots2 = [];
+        const letterTiles = [];
+        let activeRow = 1; // Which row is currently receiving letters
+
+        // Row labels
+        this.add.text(answer1StartX - 50, answer1Y, 'Word 1:', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#88aacc',
+        }).setOrigin(1, 0.5);
+
+        this.add.text(answer1StartX - 50, answer2Y, 'Word 2:', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#cc88aa',
+        }).setOrigin(1, 0.5);
+
+        // Row selection indicators
+        const row1Indicator = this.add.rectangle(answer1StartX - 70, answer1Y, 10, tileSize, 0x88aacc);
+        const row2Indicator = this.add.rectangle(answer1StartX - 70, answer2Y, 10, tileSize, 0x333333);
+
+        const updateRowIndicators = () => {
+            row1Indicator.setFillStyle(activeRow === 1 ? 0x88aacc : 0x333333);
+            row2Indicator.setFillStyle(activeRow === 2 ? 0xcc88aa : 0x333333);
+        };
+
+        const returnTileToScramble = (tile) => {
+            tile.bg.setVisible(true);
+            tile.txt.setVisible(true);
+            tile.bg.setInteractive({ useHandCursor: true });
+        };
+
+        const getActiveAnswer = () => activeRow === 1 ? answer1 : answer2;
+        const getActiveSlots = () => activeRow === 1 ? answerSlots1 : answerSlots2;
+
+        const checkCompletion = () => {
+            const word1 = answer1.map(entry => entry ? entry.letter : '').join('');
+            const word2 = answer2.map(entry => entry ? entry.letter : '').join('');
+            if (word1.length !== wordLen || word2.length !== wordLen) return;
+            if (answer1.includes(null) || answer2.includes(null)) return;
+
+            // Check both orderings
+            const correct = (word1 === targetWord1 && word2 === targetWord2) ||
+                            (word1 === targetWord2 && word2 === targetWord1);
+
+            if (correct) {
+                answerSlots1.forEach(slot => { slot.setFillStyle(0x44dd44); slot.disableInteractive(); });
+                answerSlots2.forEach(slot => { slot.setFillStyle(0x44dd44); slot.disableInteractive(); });
+                letterTiles.forEach(t => t.bg.disableInteractive());
+
+                this.add.text(width / 2, answer2Y + 70, 'Correct!', {
+                    fontSize: '28px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#44dd44',
+                }).setOrigin(0.5);
+
+                this.time.delayedCall(800, () => {
+                    this.scene.start('LevelCompleteScene', { level: this.level });
+                });
+            } else {
+                // Wrong - flash red briefly
+                answerSlots1.forEach(slot => slot.setFillStyle(0xff4444));
+                answerSlots2.forEach(slot => slot.setFillStyle(0xff4444));
+                this.time.delayedCall(500, () => {
+                    answerSlots1.forEach(slot => slot.setFillStyle(0x3a3a5a));
+                    answerSlots2.forEach(slot => slot.setFillStyle(0x3a3a5a));
+                });
+            }
+        };
+
+        // Create answer slots for word 1
+        for (let i = 0; i < wordLen; i++) {
+            const x = answer1StartX + i * tileSpacing;
+            const bg = this.add.rectangle(x, answer1Y, tileSize, tileSize, 0x3a3a5a)
+                .setStrokeStyle(2, 0x6a8aaa)
+                .setInteractive({ useHandCursor: true });
+            const txt = this.add.text(x, answer1Y, '', {
+                fontSize: '32px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerdown', () => {
+                if (answer1[i] !== null) {
+                    returnTileToScramble(answer1[i]);
+                    answer1[i] = null;
+                    txt.setText('');
+                } else {
+                    activeRow = 1;
+                    updateRowIndicators();
+                }
+            });
+
+            answerSlots1.push(bg);
+            answerSlots1[i]._txt = txt;
+        }
+
+        // Create answer slots for word 2
+        for (let i = 0; i < wordLen; i++) {
+            const x = answer1StartX + i * tileSpacing;
+            const bg = this.add.rectangle(x, answer2Y, tileSize, tileSize, 0x3a3a5a)
+                .setStrokeStyle(2, 0xaa6a8a)
+                .setInteractive({ useHandCursor: true });
+            const txt = this.add.text(x, answer2Y, '', {
+                fontSize: '32px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerdown', () => {
+                if (answer2[i] !== null) {
+                    returnTileToScramble(answer2[i]);
+                    answer2[i] = null;
+                    txt.setText('');
+                } else {
+                    activeRow = 2;
+                    updateRowIndicators();
+                }
+            });
+
+            answerSlots2.push(bg);
+            answerSlots2[i]._txt = txt;
+        }
+
+        // Create scrambled letter tiles
+        for (let i = 0; i < scrambled.length; i++) {
+            const x = scrambleStartX + i * tileSpacing;
+            const bg = this.add.rectangle(x, scrambleY, tileSize, tileSize, 0x4a4a8a)
+                .setInteractive({ useHandCursor: true });
+            const txt = this.add.text(x, scrambleY, scrambled[i].toUpperCase(), {
+                fontSize: '32px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => { if (bg.visible) bg.setFillStyle(0x6a6aaa); });
+            bg.on('pointerout', () => { if (bg.visible) bg.setFillStyle(0x4a4a8a); });
+
+            const tile = { bg, txt, letter: scrambled[i] };
+            letterTiles.push(tile);
+
+            bg.on('pointerdown', () => {
+                const answer = getActiveAnswer();
+                const slots = getActiveSlots();
+
+                // Find first empty slot in active row
+                let emptyIndex = -1;
+                for (let j = 0; j < wordLen; j++) {
+                    if (answer[j] === null) { emptyIndex = j; break; }
+                }
+                if (emptyIndex === -1) return;
+
+                // Place letter
+                answer[emptyIndex] = tile;
+                slots[emptyIndex]._txt.setText(scrambled[i].toUpperCase());
+
+                // Hide the tile
+                bg.setVisible(false);
+                txt.setVisible(false);
+                bg.disableInteractive();
+
+                // Auto-switch to other row if current row is full
+                const currentFull = !answer.includes(null);
+                if (currentFull) {
+                    const otherAnswer = activeRow === 1 ? answer2 : answer1;
+                    if (otherAnswer.includes(null)) {
+                        activeRow = activeRow === 1 ? 2 : 1;
+                        updateRowIndicators();
+                    }
+                }
+
+                // Check if both rows are full
+                if (!answer1.includes(null) && !answer2.includes(null)) {
+                    checkCompletion();
+                }
+            });
+        }
+
+        // Clear button
+        this.createButton(width / 2, answer2Y + 120, 'Clear All', () => {
+            for (let i = 0; i < wordLen; i++) {
+                if (answer1[i] !== null) {
+                    returnTileToScramble(answer1[i]);
+                    answer1[i] = null;
+                    answerSlots1[i]._txt.setText('');
+                }
+                if (answer2[i] !== null) {
+                    returnTileToScramble(answer2[i]);
+                    answer2[i] = null;
+                    answerSlots2[i]._txt.setText('');
+                }
+            }
+            activeRow = 1;
+            updateRowIndicators();
         });
     }
 
