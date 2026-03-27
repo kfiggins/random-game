@@ -93,6 +93,7 @@ const LevelRegistry = {
     86: { type: 'sorting', config: { count: 16, maxValue: 500, mode: 'merge-sort', timeLimit: 120 } },
     87: { type: 'math', config: { problems: 3, mode: 'matrix', timeLimit: 120 } },
     88: { type: 'word-scramble', config: { mode: 'cipher', cipherType: 'substitution', messageLength: 20 } },
+    89: { type: 'jigsaw', config: { rows: 7, cols: 7, canRotate: true, timeLimit: 150 } },
 };
 
 // ============================================================
