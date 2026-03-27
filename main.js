@@ -80,6 +80,7 @@ const LevelRegistry = {
     73: { type: 'memory-cards', config: { rows: 6, cols: 8, timeLimit: 30, reshuffleAfter: 1, flipBackSpeed: 250, blackout: true, fakeCards: 4 } },
     74: { type: 'maze', config: { width: 31, height: 31, cellSize: 18, fogOfWar: true, viewRadius: 2, enemies: 7, traps: 8, timeLimit: 90, hasKeys: true, keys: 4, teleporters: 2 } },
     75: { type: 'light-toggle', config: { size: 8, randomize: true, lockedCells: 10, chainReaction: true } },
+    76: { type: 'jigsaw', config: { rows: 6, cols: 6, canRotate: true, timeLimit: 120 } },
 };
 
 // ============================================================
@@ -8421,7 +8422,7 @@ class GameScene extends Phaser.Scene {
     }
     createJigsawPuzzle(config) {
         const { width, height } = this.scale;
-        const { rows, cols, canRotate } = config;
+        const { rows, cols, canRotate, timeLimit } = config;
         const totalPieces = rows * cols;
 
         // Instructions
@@ -8442,6 +8443,32 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
         }).setOrigin(0.5);
+
+        // Timer (if timeLimit is set)
+        let jigsawTimerEvent = null;
+        if (timeLimit) {
+            let timeLeft = timeLimit;
+            const timerText = this.add.text(width / 2, height - 65, `Time: ${timeLeft}s`, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            jigsawTimerEvent = this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${timeLeft}s`);
+                    if (timeLeft <= 10) {
+                        timerText.setColor('#ff4444');
+                    }
+                    if (timeLeft <= 0) {
+                        this.handleTimeUp();
+                    }
+                },
+            });
+        }
 
         // Grid dimensions — scale piece size down for larger grids
         const maxGridWidth = width - 40;
@@ -8707,6 +8734,7 @@ class GameScene extends Phaser.Scene {
 
                         // Check win
                         if (placedCount === totalPieces) {
+                            if (jigsawTimerEvent) jigsawTimerEvent.remove(false);
                             this.time.delayedCall(500, () => {
                                 this.scene.start('LevelCompleteScene', { level: this.level });
                             });
