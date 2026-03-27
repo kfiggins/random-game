@@ -76,6 +76,7 @@ const LevelRegistry = {
     69: { type: 'color-chain', config: { gridSize: 10, colors: 12, fillBoard: true, timeLimit: 180 } },
     70: { type: 'multi-puzzle', config: { stages: 5, timeLimit: 180 } },
     71: { type: 'simon-says', config: { sequenceLength: 15, colors: 8, playbackSpeed: 300, replayAllowed: false, decoyFlash: true } },
+    72: { type: 'sliding-puzzle', config: { size: 5, useImage: true, timeLimit: 180 } },
 };
 
 // ============================================================
@@ -6930,6 +6931,32 @@ class GameScene extends Phaser.Scene {
             color: '#aaaaaa',
         }).setOrigin(0.5) : null;
 
+        // Timer support for timed sliding puzzles
+        let timerEvent = null;
+        if (config.timeLimit) {
+            let timeLeft = config.timeLimit;
+            const timerText = this.add.text(width / 2, useImage ? 114 : 94, `Time: ${timeLeft}s`, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            timerEvent = this.time.addEvent({
+                delay: 1000,
+                repeat: config.timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${timeLeft}s`);
+                    if (timeLeft <= 10) {
+                        timerText.setColor('#ff4444');
+                    }
+                    if (timeLeft <= 0) {
+                        this.handleTimeUp();
+                    }
+                },
+            });
+        }
+
         const tiles = [];
 
         const renderBoard = () => {
@@ -6991,6 +7018,7 @@ class GameScene extends Phaser.Scene {
 
                             // Check win
                             if (this.checkSlidingPuzzleSolved(board, size)) {
+                                if (timerEvent) timerEvent.remove(false);
                                 this.time.delayedCall(300, () => {
                                     this.scene.start('LevelCompleteScene', { level: this.level });
                                 });
