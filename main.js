@@ -33,6 +33,7 @@ const LevelRegistry = {
     26: { type: 'pattern-complete', config: { patternLength: 9, numChoices: 4, is2D: true } },
     27: { type: 'maze', config: { width: 15, height: 15, cellSize: 35, hasKeys: true, keys: 2 } },
     28: { type: 'math', config: { problems: 6, operations: ['multiply', 'divide'], maxNum: 12, timeLimit: 40 } },
+    29: { type: 'tower-of-hanoi', config: { discs: 4 } },
 };
 
 // ============================================================
@@ -230,6 +231,8 @@ class GameScene extends Phaser.Scene {
             this.createLightTogglePuzzle(levelData.config);
         } else if (levelData && levelData.type === 'color-chain') {
             this.createColorChainPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'tower-of-hanoi') {
+            this.createTowerOfHanoiPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -2842,6 +2845,190 @@ class GameScene extends Phaser.Scene {
                     }
                 });
             }
+        }
+    }
+    createTowerOfHanoiPuzzle(config) {
+        const { width, height } = this.scale;
+        const { discs } = config;
+        const minMoves = Math.pow(2, discs) - 1;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Move all discs to the right peg!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Move counter
+        let moveCount = 0;
+        const moveText = this.add.text(width / 2 - 150, height - 50, `Moves: 0`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const minText = this.add.text(width / 2 + 150, height - 50, `Minimum: ${minMoves}`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#888888',
+        }).setOrigin(0.5);
+
+        // Peg positions
+        const pegX = [width / 2 - 200, width / 2, width / 2 + 200];
+        const baseY = height - 100;
+        const pegHeight = 200;
+        const pegWidth = 8;
+        const baseWidth = 180;
+        const discHeight = 30;
+        const maxDiscWidth = 150;
+        const minDiscWidth = 50;
+
+        // Draw base and pegs
+        this.add.rectangle(width / 2, baseY + 5, 620, 10, 0x8b7355);
+        for (let i = 0; i < 3; i++) {
+            this.add.rectangle(pegX[i], baseY - pegHeight / 2, pegWidth, pegHeight, 0x8b7355);
+        }
+
+        // Peg labels
+        const pegLabels = ['A', 'B', 'C'];
+        for (let i = 0; i < 3; i++) {
+            this.add.text(pegX[i], baseY + 25, pegLabels[i], {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#666666',
+            }).setOrigin(0.5);
+        }
+
+        // Disc colors
+        const discColors = [0xe74c3c, 0x3498db, 0x2ecc71, 0xf39c12, 0x9b59b6, 0x1abc9c];
+
+        // State: array of 3 pegs, each an array of disc sizes (smaller number = smaller disc)
+        const pegs = [[], [], []];
+        const discGraphics = [];
+
+        // Initialize: all discs on left peg, largest first
+        for (let i = discs; i >= 1; i--) {
+            pegs[0].push(i);
+        }
+
+        // Create disc graphics
+        const drawDiscs = () => {
+            // Clear old disc graphics
+            discGraphics.forEach(g => g.destroy());
+            discGraphics.length = 0;
+
+            for (let p = 0; p < 3; p++) {
+                for (let d = 0; d < pegs[p].length; d++) {
+                    const discSize = pegs[p][d];
+                    const discWidth = minDiscWidth + (discSize - 1) * ((maxDiscWidth - minDiscWidth) / (discs - 1));
+                    const x = pegX[p];
+                    const y = baseY - (d * discHeight) - discHeight / 2;
+                    const color = discColors[(discSize - 1) % discColors.length];
+
+                    const rect = this.add.rectangle(x, y, discWidth, discHeight - 4, color)
+                        .setStrokeStyle(2, 0xffffff, 0.3);
+                    discGraphics.push(rect);
+
+                    const label = this.add.text(x, y, `${discSize}`, {
+                        fontSize: '16px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    discGraphics.push(label);
+                }
+            }
+        };
+
+        drawDiscs();
+
+        // Selection state
+        let selectedPeg = -1;
+        let selectionIndicator = null;
+
+        // Error flash
+        const showError = (message) => {
+            const errorText = this.add.text(width / 2, 110, message, {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ff4444',
+            }).setOrigin(0.5);
+
+            this.tweens.add({
+                targets: errorText,
+                alpha: 0,
+                duration: 1000,
+                onComplete: () => errorText.destroy(),
+            });
+        };
+
+        // Create clickable zones for each peg
+        for (let i = 0; i < 3; i++) {
+            const zone = this.add.rectangle(pegX[i], baseY - pegHeight / 2, baseWidth, pegHeight + 20, 0xffffff, 0)
+                .setInteractive({ useHandCursor: true });
+
+            zone.on('pointerdown', () => {
+                if (selectedPeg === -1) {
+                    // Pick up from this peg
+                    if (pegs[i].length === 0) {
+                        showError('No discs on this peg!');
+                        return;
+                    }
+                    selectedPeg = i;
+
+                    // Show selection indicator
+                    const topDisc = pegs[i][pegs[i].length - 1];
+                    const discWidth = minDiscWidth + (topDisc - 1) * ((maxDiscWidth - minDiscWidth) / (discs - 1));
+                    if (selectionIndicator) selectionIndicator.destroy();
+                    selectionIndicator = this.add.rectangle(
+                        pegX[i], baseY - pegHeight - 20,
+                        discWidth, discHeight - 4,
+                        discColors[(topDisc - 1) % discColors.length]
+                    ).setStrokeStyle(3, 0xffff00, 0.8);
+                    discGraphics.push(selectionIndicator);
+                } else if (selectedPeg === i) {
+                    // Deselect
+                    selectedPeg = -1;
+                    if (selectionIndicator) {
+                        selectionIndicator.destroy();
+                        selectionIndicator = null;
+                    }
+                } else {
+                    // Try to place on this peg
+                    const movingDisc = pegs[selectedPeg][pegs[selectedPeg].length - 1];
+                    const topDisc = pegs[i].length > 0 ? pegs[i][pegs[i].length - 1] : Infinity;
+
+                    if (movingDisc > topDisc) {
+                        showError('Cannot place larger disc on smaller!');
+                        selectedPeg = -1;
+                        if (selectionIndicator) {
+                            selectionIndicator.destroy();
+                            selectionIndicator = null;
+                        }
+                        return;
+                    }
+
+                    // Valid move
+                    pegs[selectedPeg].pop();
+                    pegs[i].push(movingDisc);
+                    moveCount++;
+                    moveText.setText(`Moves: ${moveCount}`);
+
+                    selectedPeg = -1;
+                    if (selectionIndicator) {
+                        selectionIndicator.destroy();
+                        selectionIndicator = null;
+                    }
+
+                    drawDiscs();
+
+                    // Check win: all discs on right peg
+                    if (pegs[2].length === discs) {
+                        this.time.delayedCall(500, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    }
+                }
+            });
         }
     }
 }
