@@ -121,6 +121,24 @@ const LevelRegistry = {
 };
 
 // ============================================================
+// Difficulty Tier Helper
+// Returns { name, color, textColor } for a given level number.
+// ============================================================
+function getDifficultyTier(level) {
+    if (level <= 10)  return { name: 'Tutorial',  color: 0x228B22, textColor: '#228B22' };
+    if (level <= 20)  return { name: 'Easy',       color: 0x66BB6A, textColor: '#66BB6A' };
+    if (level <= 30)  return { name: 'Medium',     color: 0xCCCC00, textColor: '#CCCC00' };
+    if (level <= 40)  return { name: 'Challenging', color: 0xE67E22, textColor: '#E67E22' };
+    if (level <= 50)  return { name: 'Hard',       color: 0xE05500, textColor: '#E05500' };
+    if (level <= 60)  return { name: 'Hard+',      color: 0xCC0000, textColor: '#CC0000' };
+    if (level <= 70)  return { name: 'Very Hard',  color: 0x8B0000, textColor: '#8B0000' };
+    if (level <= 80)  return { name: 'Extreme',    color: 0x8E44AD, textColor: '#8E44AD' };
+    if (level <= 90)  return { name: 'Nightmare',  color: 0x4A0072, textColor: '#4A0072' };
+    if (level <= 99)  return { name: 'Insane',     color: 0x111111, textColor: '#FF2222' };
+    return { name: 'Final Boss', color: 0x111111, textColor: '#FFD700' };
+}
+
+// ============================================================
 // BootScene - Loading screen with animated loading bar
 // ============================================================
 class BootScene extends Phaser.Scene {
@@ -454,22 +472,18 @@ class LevelSelectScene extends Phaser.Scene {
         const startX = (width - gridWidth) / 2 + btnSize / 2 + labelWidth / 2;
         const startY = 62;
 
-        const rowColors = [
-            0x2a4a6a, 0x2a5a5a, 0x3a4a5a, 0x4a3a5a, 0x3a3a6a,
-            0x4a4a5a, 0x3a5a4a, 0x5a3a4a, 0x4a3a4a, 0x3a3a5a,
-        ];
-
         for (let row = 0; row < rows; row++) {
             // Row label (1-10, 11-20, etc.)
             const rangeStart = row * 10 + 1;
             const rangeEnd = row * 10 + 10;
             const labelX = startX - btnSize / 2 - labelWidth / 2 - padding;
             const labelY = startY + row * (btnSize + padding);
+            const rowTier = getDifficultyTier(rangeStart);
 
-            this.add.text(labelX, labelY, `${rangeStart}-${rangeEnd}`, {
-                fontSize: '11px',
+            this.add.text(labelX, labelY, rowTier.name, {
+                fontSize: '9px',
                 fontFamily: 'Arial, sans-serif',
-                color: '#667788',
+                color: rowTier.textColor,
             }).setOrigin(0.5);
 
             for (let col = 0; col < cols; col++) {
@@ -478,7 +492,9 @@ class LevelSelectScene extends Phaser.Scene {
                 const y = startY + row * (btnSize + padding);
                 const levelNum = i + 1;
 
-                const baseColor = rowColors[row];
+                const tier = getDifficultyTier(levelNum);
+                const baseColor = tier.color;
+                const txtColor = (levelNum >= 91) ? tier.textColor : '#ccddee';
 
                 // Rounded button background using graphics
                 const bg = this.add.graphics();
@@ -487,17 +503,70 @@ class LevelSelectScene extends Phaser.Scene {
                 bg.lineStyle(1, 0x6688aa, 0.3);
                 bg.strokeRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
 
-                const text = this.add.text(x, y, `${levelNum}`, {
+                // Level 100: draw a small skull icon
+                if (levelNum === 100) {
+                    const skullG = this.add.graphics();
+                    const sx = x, sy = y - 10;
+                    skullG.fillStyle(0xFFD700, 1);
+                    skullG.fillCircle(sx, sy, 6);
+                    skullG.fillRect(sx - 4, sy + 4, 8, 4);
+                    skullG.fillStyle(0x111111, 1);
+                    skullG.fillCircle(sx - 2, sy - 1, 1.5);
+                    skullG.fillCircle(sx + 2, sy - 1, 1.5);
+                    skullG.fillRect(sx - 2, sy + 3, 1, 2);
+                    skullG.fillRect(sx, sy + 3, 1, 2);
+                    skullG.fillRect(sx + 2, sy + 3, 1, 2);
+                }
+
+                const levelEntry = LevelRegistry[levelNum];
+                const isSpecial = levelEntry && (levelEntry.type === 'multi-puzzle' || levelEntry.type === 'final-boss');
+
+                const text = this.add.text(x, isSpecial && levelNum !== 100 ? y + 2 : y, `${levelNum}`, {
                     fontSize: '15px',
                     fontFamily: 'Arial, sans-serif',
-                    color: '#ccddee',
+                    color: txtColor,
                 }).setOrigin(0.5);
+
+                // Draw star icon for multi-puzzle levels, skull for final-boss (non-100)
+                if (isSpecial && levelNum !== 100) {
+                    const iconG = this.add.graphics();
+                    const ix = x, iy = y - 12;
+                    if (levelEntry.type === 'multi-puzzle') {
+                        // Small star
+                        iconG.fillStyle(0xFFD700, 1);
+                        iconG.beginPath();
+                        for (let p = 0; p < 5; p++) {
+                            const outerAngle = (p * 2 * Math.PI / 5) - Math.PI / 2;
+                            const innerAngle = outerAngle + Math.PI / 5;
+                            const ox = ix + Math.cos(outerAngle) * 6;
+                            const oy = iy + Math.sin(outerAngle) * 6;
+                            const inx = ix + Math.cos(innerAngle) * 3;
+                            const iny = iy + Math.sin(innerAngle) * 3;
+                            if (p === 0) iconG.moveTo(ox, oy);
+                            else iconG.lineTo(ox, oy);
+                            iconG.lineTo(inx, iny);
+                        }
+                        iconG.closePath();
+                        iconG.fillPath();
+                    } else {
+                        // Small skull for non-100 final-boss type
+                        iconG.fillStyle(0xFF4444, 1);
+                        iconG.fillCircle(ix, iy, 5);
+                        iconG.fillRect(ix - 3, iy + 3, 6, 3);
+                        iconG.fillStyle(0x111111, 1);
+                        iconG.fillCircle(ix - 1.5, iy - 0.5, 1);
+                        iconG.fillCircle(ix + 1.5, iy - 0.5, 1);
+                    }
+                }
 
                 // Invisible hit area on top
                 const hitArea = this.add.rectangle(x, y, btnSize, btnSize, 0x000000, 0)
                     .setInteractive({ useHandCursor: true });
 
-                const hoverColor = baseColor + 0x222222;
+                const r = Math.min(255, ((baseColor >> 16) & 0xff) + 0x22);
+                const g = Math.min(255, ((baseColor >> 8) & 0xff) + 0x22);
+                const b = Math.min(255, (baseColor & 0xff) + 0x22);
+                const hoverColor = (r << 16) | (g << 8) | b;
 
                 hitArea.on('pointerover', () => {
                     bg.clear();
@@ -521,7 +590,7 @@ class LevelSelectScene extends Phaser.Scene {
                     bg.fillRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
                     bg.lineStyle(1, 0x6688aa, 0.3);
                     bg.strokeRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
-                    text.setColor('#ccddee');
+                    text.setColor(txtColor);
                     this.tweens.add({
                         targets: [bg, text, hitArea],
                         scaleX: 1,
@@ -604,6 +673,14 @@ class GameScene extends Phaser.Scene {
             fontSize: '32px',
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Difficulty tier label
+        const tier = getDifficultyTier(this.level);
+        this.add.text(width / 2, 58, tier.name, {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: tier.textColor,
         }).setOrigin(0.5);
 
         // Look up level in registry
