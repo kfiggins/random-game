@@ -65,6 +65,7 @@ const LevelRegistry = {
     58: { type: 'tower-of-hanoi', config: { discs: 7 } },
     59: { type: 'light-toggle', config: { size: 7, randomize: true, lockedCells: 8 } },
     60: { type: 'multi-puzzle', config: { stages: 4, timeLimit: 150 } },
+    61: { type: 'memory-cards', config: { rows: 6, cols: 7, timeLimit: 35, reshuffleAfter: 2, flipBackSpeed: 300, blackout: true, fakeCards: 2 } },
 };
 
 // ============================================================
@@ -462,9 +463,9 @@ class GameScene extends Phaser.Scene {
 
     createMemoryCardsPuzzle(config) {
         const { width, height } = this.scale;
-        const { rows, cols, timeLimit, reshuffleAfter, flipBackSpeed, blackout } = config;
+        const { rows, cols, timeLimit, reshuffleAfter, flipBackSpeed, blackout, fakeCards: numFakes } = config;
         const totalCards = rows * cols;
-        const numPairs = totalCards / 2;
+        const numPairs = (totalCards - (numFakes || 0)) / 2;
 
         const cardColors = [
             { name: 'Red', hex: 0xff4444 },
@@ -482,12 +483,24 @@ class GameScene extends Phaser.Scene {
             { name: 'Gold', hex: 0xffd700 },
             { name: 'Maroon', hex: 0xaa3344 },
             { name: 'Mint', hex: 0x44ffaa },
+            { name: 'Slate', hex: 0x6688aa },
+            { name: 'Rose', hex: 0xe84393 },
+            { name: 'Olive', hex: 0x88aa44 },
+            { name: 'Sky', hex: 0x66bbee },
+            { name: 'Plum', hex: 0x884488 },
         ];
 
         // Create pairs and shuffle
         const cardData = [];
         for (let i = 0; i < numPairs; i++) {
             cardData.push(cardColors[i], cardColors[i]);
+        }
+        // Add fake cards that visually resemble real colors but have unique names so they never match
+        if (numFakes) {
+            for (let i = 0; i < numFakes; i++) {
+                const sourceColor = cardColors[i % numPairs];
+                cardData.push({ name: `Fake_${i}_${sourceColor.name}`, hex: sourceColor.hex, isFake: true });
+            }
         }
         Phaser.Utils.Array.Shuffle(cardData);
 
@@ -579,7 +592,10 @@ class GameScene extends Phaser.Scene {
                 color: '#ffffff',
             }).setOrigin(0.5).setVisible(false);
 
-            const card = { back, questionMark, face, colorLabel, colorName: color.name, flipped: false, matched: false, x, y };
+            // Display name hides fake identity; colorName is unique for matching logic
+            const displayName = color.isFake ? color.name.split('_').pop() : color.name;
+            colorLabel.setText(displayName);
+            const card = { back, questionMark, face, colorLabel, colorName: color.name, isFake: !!color.isFake, flipped: false, matched: false, x, y };
             cards.push(card);
 
             back.on('pointerover', () => {
@@ -659,12 +675,14 @@ class GameScene extends Phaser.Scene {
                                 consecutiveMisses = 0;
                                 // Collect unmatched cards and reshuffle their color assignments
                                 const unmatched = cards.filter(c => !c.matched);
-                                const unmatchedColors = unmatched.map(c => ({ name: c.colorName, hex: c.face.fillColor }));
+                                const unmatchedColors = unmatched.map(c => ({ name: c.colorName, hex: c.face.fillColor, isFake: c.isFake }));
                                 Phaser.Utils.Array.Shuffle(unmatchedColors);
                                 unmatched.forEach((c, idx) => {
                                     c.colorName = unmatchedColors[idx].name;
+                                    c.isFake = unmatchedColors[idx].isFake;
                                     c.face.setFillStyle(unmatchedColors[idx].hex);
-                                    c.colorLabel.setText(unmatchedColors[idx].name);
+                                    const dispName = c.isFake ? c.colorName.split('_').pop() : c.colorName;
+                                    c.colorLabel.setText(dispName);
                                 });
 
                                 // Flash a warning
