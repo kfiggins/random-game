@@ -95,6 +95,7 @@ const LevelRegistry = {
     88: { type: 'word-scramble', config: { mode: 'cipher', cipherType: 'substitution', messageLength: 20 } },
     89: { type: 'jigsaw', config: { rows: 7, cols: 7, canRotate: true, timeLimit: 150 } },
     90: { type: 'multi-puzzle', config: { stages: 8, timeLimit: 300 } },
+    91: { type: 'simon-says', config: { sequenceLength: 20, colors: 8, playbackSpeed: 250, replayAllowed: false, decoyFlash: true, speedUp: true } },
 };
 
 // ============================================================
@@ -737,7 +738,7 @@ class GameScene extends Phaser.Scene {
 
     createSimonSaysPuzzle(config) {
         const { width, height } = this.scale;
-        const { sequenceLength, colors: numColors, playbackSpeed, replayAllowed, decoyFlash } = config;
+        const { sequenceLength, colors: numColors, playbackSpeed, replayAllowed, decoyFlash, speedUp } = config;
 
         const allColorDefs = [
             { name: 'Red', hex: 0xff4444, dimHex: 0x882222 },
@@ -803,6 +804,7 @@ class GameScene extends Phaser.Scene {
 
         let playerIndex = 0;
         let inputEnabled = false;
+        let currentPlaybackSpeed = playbackSpeed;
 
         const lightUp = (btnIndex, duration) => {
             const btn = buttons[btnIndex];
@@ -815,21 +817,22 @@ class GameScene extends Phaser.Scene {
         const playSequence = () => {
             inputEnabled = false;
             playerIndex = 0;
+            if (speedUp) currentPlaybackSpeed = playbackSpeed;
             instructionText.setText('Watch the sequence!');
             progressText.setText('');
 
+            let cumulativeDelay = 0;
             sequence.forEach((btnIndex, i) => {
-                this.time.delayedCall(playbackSpeed * (i + 1), () => {
-                    lightUp(btnIndex, playbackSpeed);
+                const stepSpeed = speedUp ? Math.max(50, playbackSpeed - i * 10) : currentPlaybackSpeed;
+                cumulativeDelay += stepSpeed;
+                const delay = cumulativeDelay;
+                this.time.delayedCall(delay, () => {
+                    lightUp(btnIndex, stepSpeed);
                 });
-            });
 
-            // Decoy flashes: briefly flash random non-sequence buttons during playback
-            if (decoyFlash) {
-                sequence.forEach((btnIndex, i) => {
-                    const delay = playbackSpeed * (i + 1) + playbackSpeed * 0.3;
-                    this.time.delayedCall(delay, () => {
-                        // Pick a button that is NOT the current sequence button
+                // Decoy flashes: briefly flash random non-sequence buttons during playback
+                if (decoyFlash) {
+                    this.time.delayedCall(delay + stepSpeed * 0.3, () => {
                         const candidates = [];
                         for (let c = 0; c < buttons.length; c++) {
                             if (c !== btnIndex) candidates.push(c);
@@ -837,14 +840,15 @@ class GameScene extends Phaser.Scene {
                         const decoyIndex = candidates[Phaser.Math.Between(0, candidates.length - 1)];
                         const decoyBtn = buttons[decoyIndex];
                         decoyBtn.rect.setFillStyle(decoyBtn.colorDef.hex);
-                        this.time.delayedCall(playbackSpeed * 0.2, () => {
+                        this.time.delayedCall(stepSpeed * 0.2, () => {
                             decoyBtn.rect.setFillStyle(decoyBtn.colorDef.dimHex);
                         });
                     });
-                });
-            }
+                }
+            });
 
-            this.time.delayedCall(playbackSpeed * (sequence.length + 1), () => {
+            const lastStepSpeed = speedUp ? Math.max(50, playbackSpeed - (sequence.length - 1) * 10) : currentPlaybackSpeed;
+            this.time.delayedCall(cumulativeDelay + lastStepSpeed, () => {
                 inputEnabled = true;
                 instructionText.setText('Your turn! Repeat the sequence.');
                 progressText.setText(`0/${sequenceLength}`);
@@ -865,6 +869,9 @@ class GameScene extends Phaser.Scene {
                 if (sequence[playerIndex] === btnIndex) {
                     playerIndex++;
                     progressText.setText(`${playerIndex}/${sequenceLength}`);
+                    if (speedUp) {
+                        currentPlaybackSpeed = Math.max(50, currentPlaybackSpeed - 10);
+                    }
 
                     if (playerIndex >= sequenceLength) {
                         inputEnabled = false;
