@@ -45,6 +45,7 @@ const LevelRegistry = {
     38: { type: 'word-scramble', config: { wordLength: 7, showHint: false, multiWord: true, wordCount: 2 } },
     39: { type: 'math', config: { problems: 4, mode: 'fill-operators', timeLimit: 60 } },
     40: { type: 'tower-of-hanoi', config: { discs: 5 } },
+    41: { type: 'simon-says', config: { sequenceLength: 10, colors: 6, playbackSpeed: 400, replayAllowed: false } },
 };
 
 // ============================================================
@@ -651,14 +652,19 @@ class GameScene extends Phaser.Scene {
 
     createSimonSaysPuzzle(config) {
         const { width, height } = this.scale;
-        const { sequenceLength, playbackSpeed } = config;
+        const { sequenceLength, colors: numColors, playbackSpeed, replayAllowed } = config;
 
-        const colorDefs = [
+        const allColorDefs = [
             { name: 'Red', hex: 0xff4444, dimHex: 0x882222 },
             { name: 'Blue', hex: 0x4488ff, dimHex: 0x224488 },
             { name: 'Green', hex: 0x44dd44, dimHex: 0x227722 },
             { name: 'Yellow', hex: 0xffdd44, dimHex: 0x887722 },
+            { name: 'Orange', hex: 0xff8844, dimHex: 0x884422 },
+            { name: 'Purple', hex: 0xaa44ff, dimHex: 0x552288 },
         ];
+
+        const colorDefs = allColorDefs.slice(0, numColors || 4);
+        const canReplay = replayAllowed !== false;
 
         // Instructions
         const instructionText = this.add.text(width / 2, 70, 'Watch the sequence!', {
@@ -674,15 +680,19 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
         }).setOrigin(0.5);
 
-        // Create 2x2 grid of buttons
-        const btnSize = 120;
+        // Determine grid layout based on number of colors
+        const cols = colorDefs.length <= 4 ? 2 : 3;
+        const rows = Math.ceil(colorDefs.length / cols);
+        const btnSize = colorDefs.length <= 4 ? 120 : 100;
         const gap = 20;
-        const gridStartX = width / 2 - btnSize / 2 - gap / 2;
-        const gridStartY = height / 2 - btnSize / 2 - gap / 2;
+        const gridW = cols * btnSize + (cols - 1) * gap;
+        const gridH = rows * btnSize + (rows - 1) * gap;
+        const gridStartX = width / 2 - gridW / 2 + btnSize / 2;
+        const gridStartY = height / 2 - gridH / 2 + btnSize / 2;
 
         const buttons = colorDefs.map((colorDef, i) => {
-            const col = i % 2;
-            const row = Math.floor(i / 2);
+            const col = i % cols;
+            const row = Math.floor(i / cols);
             const x = gridStartX + col * (btnSize + gap);
             const y = gridStartY + row * (btnSize + gap);
 
@@ -701,7 +711,7 @@ class GameScene extends Phaser.Scene {
         // Generate random sequence
         const sequence = [];
         for (let i = 0; i < sequenceLength; i++) {
-            sequence.push(Phaser.Math.Between(0, 3));
+            sequence.push(Phaser.Math.Between(0, colorDefs.length - 1));
         }
 
         let playerIndex = 0;
@@ -759,11 +769,19 @@ class GameScene extends Phaser.Scene {
                 } else {
                     // Wrong
                     inputEnabled = false;
-                    instructionText.setText('Wrong! Watch again...');
-                    progressText.setText('');
-                    this.time.delayedCall(1000, () => {
-                        playSequence();
-                    });
+                    if (canReplay) {
+                        instructionText.setText('Wrong! Watch again...');
+                        progressText.setText('');
+                        this.time.delayedCall(1000, () => {
+                            playSequence();
+                        });
+                    } else {
+                        instructionText.setText('Wrong! Restarting...');
+                        progressText.setText('');
+                        this.time.delayedCall(1000, () => {
+                            this.scene.restart();
+                        });
+                    }
                 }
             });
         });
