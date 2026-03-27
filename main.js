@@ -17172,31 +17172,152 @@ class LevelCompleteScene extends Phaser.Scene {
     }
 
     create() {
+        // If level 100 was just completed, go to the epic game completion screen
+        if (this.level >= 100) {
+            this.scene.start('GameCompleteScene');
+            return;
+        }
+
         const { width, height } = this.scale;
 
-        this.add.text(width / 2, height / 2 - 80, `Level ${this.level} Complete!`, {
-            fontSize: '40px',
-            fontFamily: 'Arial, sans-serif',
-            color: '#44dd44',
-        }).setOrigin(0.5);
+        // Background pulse effect
+        const flashOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0xffffff).setAlpha(0.6);
+        this.tweens.add({
+            targets: flashOverlay,
+            alpha: 0,
+            duration: 600,
+            ease: 'Power2',
+        });
 
-        // Next Level button (only if not the last level)
-        if (this.level < 100) {
-            this.createButton(width / 2, height / 2 + 20, 'Next Level', () => {
-                this.scene.start('GameScene', { level: this.level + 1 });
+        // Firework-like particle bursts using tweened circles
+        this.launchFireworks(5);
+
+        // "Level Complete!" text with bounce/scale animation
+        const completeText = this.add.text(width / 2, height / 2 - 100, `Level ${this.level} Complete!`, {
+            fontSize: '44px',
+            fontFamily: 'Georgia, serif',
+            color: '#44ff44',
+            stroke: '#000000',
+            strokeThickness: 4,
+        }).setOrigin(0.5).setScale(0).setAlpha(0);
+
+        this.tweens.add({
+            targets: completeText,
+            scaleX: 1,
+            scaleY: 1,
+            alpha: 1,
+            duration: 600,
+            ease: 'Back.easeOut',
+        });
+
+        // Star rating display (3 stars always for now)
+        const starY = height / 2 - 30;
+        const starSpacing = 60;
+        for (let i = 0; i < 3; i++) {
+            const starX = width / 2 + (i - 1) * starSpacing;
+            const star = this.createStar(starX, starY, 20, 0xffdd00);
+            star.setScale(0).setAlpha(0);
+            this.tweens.add({
+                targets: star,
+                scaleX: 1,
+                scaleY: 1,
+                alpha: 1,
+                duration: 400,
+                delay: 600 + i * 200,
+                ease: 'Back.easeOut',
             });
         }
 
-        this.createButton(width / 2, height / 2 + 80, 'Back to Menu', () => {
-            this.scene.start('MenuScene');
-        }, 0x5a3a3a, 0x7a5a5a);
+        // Next Level button
+        this.time.delayedCall(1200, () => {
+            const nextBtn = this.createButton(width / 2, height / 2 + 60, 'Next Level', () => {
+                this.scene.start('GameScene', { level: this.level + 1 });
+            });
+            nextBtn.bg.setAlpha(0);
+            nextBtn.txt.setAlpha(0);
+            this.tweens.add({ targets: [nextBtn.bg, nextBtn.txt], alpha: 1, duration: 300 });
+
+            const menuBtn = this.createButton(width / 2, height / 2 + 120, 'Back to Menu', () => {
+                this.scene.start('MenuScene');
+            }, 0x5a3a3a, 0x7a5a5a);
+            menuBtn.bg.setAlpha(0);
+            menuBtn.txt.setAlpha(0);
+            this.tweens.add({ targets: [menuBtn.bg, menuBtn.txt], alpha: 1, duration: 300 });
+        });
+
+        // Continuous small fireworks
+        this.time.addEvent({
+            delay: 800,
+            repeat: 4,
+            callback: () => this.launchFireworks(2),
+        });
+    }
+
+    launchFireworks(count) {
+        const { width, height } = this.scale;
+        const colors = [0xff4444, 0x44ff44, 0x4444ff, 0xffff44, 0xff44ff, 0x44ffff, 0xff8800, 0xffffff];
+        for (let i = 0; i < count; i++) {
+            const cx = Phaser.Math.Between(100, width - 100);
+            const cy = Phaser.Math.Between(80, height - 150);
+            const color = Phaser.Utils.Array.GetRandom(colors);
+            const particleCount = Phaser.Math.Between(10, 18);
+            for (let p = 0; p < particleCount; p++) {
+                const angle = (Math.PI * 2 * p) / particleCount + Phaser.Math.FloatBetween(-0.2, 0.2);
+                const dist = Phaser.Math.Between(40, 120);
+                const size = Phaser.Math.Between(3, 7);
+                const circle = this.add.circle(cx, cy, size, color).setAlpha(1);
+                this.tweens.add({
+                    targets: circle,
+                    x: cx + Math.cos(angle) * dist,
+                    y: cy + Math.sin(angle) * dist,
+                    alpha: 0,
+                    scaleX: 0.2,
+                    scaleY: 0.2,
+                    duration: Phaser.Math.Between(500, 900),
+                    delay: i * 150,
+                    ease: 'Power2',
+                    onComplete: () => circle.destroy(),
+                });
+            }
+        }
+    }
+
+    createStar(x, y, radius, color) {
+        const gfx = this.add.graphics();
+        const points = [];
+        for (let i = 0; i < 10; i++) {
+            const angle = (Math.PI * 2 * i) / 10 - Math.PI / 2;
+            const r = i % 2 === 0 ? radius : radius * 0.45;
+            points.push(x + Math.cos(angle) * r);
+            points.push(y + Math.sin(angle) * r);
+        }
+        gfx.fillStyle(color, 1);
+        gfx.fillPoints(points.map((v, i) => i % 2 === 0 ? { x: v, y: points[i + 1] } : null).filter((_, i) => i % 2 === 0), true);
+        // Simpler approach: draw star as polygon
+        gfx.clear();
+        gfx.fillStyle(color, 1);
+        const starPoints = [];
+        for (let i = 0; i < 10; i++) {
+            const angle = (Math.PI * 2 * i) / 10 - Math.PI / 2;
+            const r = i % 2 === 0 ? radius : radius * 0.45;
+            starPoints.push(new Phaser.Geom.Point(Math.cos(angle) * r, Math.sin(angle) * r));
+        }
+        gfx.beginPath();
+        gfx.moveTo(starPoints[0].x, starPoints[0].y);
+        for (let i = 1; i < starPoints.length; i++) {
+            gfx.lineTo(starPoints[i].x, starPoints[i].y);
+        }
+        gfx.closePath();
+        gfx.fillPath();
+        gfx.setPosition(x, y);
+        return gfx;
     }
 
     createButton(x, y, label, callback, color = 0x4a4a8a, hoverColor = 0x6a6aaa) {
         const bg = this.add.rectangle(x, y, 240, 50, color)
             .setInteractive({ useHandCursor: true });
 
-        this.add.text(x, y, label, {
+        const txt = this.add.text(x, y, label, {
             fontSize: '24px',
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
@@ -17206,7 +17327,210 @@ class LevelCompleteScene extends Phaser.Scene {
         bg.on('pointerout', () => bg.setFillStyle(color));
         bg.on('pointerdown', callback);
 
-        return bg;
+        return { bg, txt };
+    }
+}
+
+// ============================================================
+// GameCompleteScene - Epic celebration after beating all 100 levels
+// ============================================================
+class GameCompleteScene extends Phaser.Scene {
+    constructor() {
+        super('GameCompleteScene');
+    }
+
+    create() {
+        const { width, height } = this.scale;
+
+        // Background flash
+        const flash = this.add.rectangle(width / 2, height / 2, width, height, 0xffffff).setAlpha(0.8);
+        this.tweens.add({ targets: flash, alpha: 0, duration: 1000, ease: 'Power2' });
+
+        // Continuous epic fireworks
+        this.time.addEvent({
+            delay: 400,
+            loop: true,
+            callback: () => this.launchEpicFirework(),
+        });
+
+        // "CONGRATULATIONS!" with rainbow color cycling
+        const congratsText = this.add.text(width / 2, 100, 'CONGRATULATIONS!', {
+            fontSize: '52px',
+            fontFamily: 'Georgia, serif',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 6,
+        }).setOrigin(0.5).setScale(0);
+
+        this.tweens.add({
+            targets: congratsText,
+            scaleX: 1,
+            scaleY: 1,
+            duration: 800,
+            ease: 'Back.easeOut',
+        });
+
+        // Rainbow color cycling via timed updates
+        let hue = 0;
+        this.time.addEvent({
+            delay: 50,
+            loop: true,
+            callback: () => {
+                hue = (hue + 3) % 360;
+                congratsText.setColor(this.hslToHex(hue, 100, 65));
+            },
+        });
+
+        // Subtitle
+        const subtitle = this.add.text(width / 2, 170, 'You completed all 100 levels!', {
+            fontSize: '28px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaddff',
+        }).setOrigin(0.5).setAlpha(0);
+
+        this.tweens.add({
+            targets: subtitle,
+            alpha: 1,
+            duration: 600,
+            delay: 800,
+        });
+
+        // Master title
+        const masterText = this.add.text(width / 2, 220, 'A True Puzzle Master!', {
+            fontSize: '24px',
+            fontFamily: 'Georgia, serif',
+            color: '#ffdd44',
+            fontStyle: 'italic',
+        }).setOrigin(0.5).setAlpha(0);
+
+        this.tweens.add({
+            targets: masterText,
+            alpha: 1,
+            duration: 600,
+            delay: 1200,
+        });
+
+        // Star burst around the title
+        this.time.delayedCall(500, () => {
+            for (let i = 0; i < 12; i++) {
+                const angle = (Math.PI * 2 * i) / 12;
+                const star = this.add.circle(width / 2, 100, 4, 0xffdd44).setAlpha(1);
+                this.tweens.add({
+                    targets: star,
+                    x: width / 2 + Math.cos(angle) * 180,
+                    y: 100 + Math.sin(angle) * 60,
+                    alpha: 0,
+                    duration: 1000,
+                    ease: 'Power2',
+                    onComplete: () => star.destroy(),
+                });
+            }
+        });
+
+        // Credits scroll
+        const creditsContent = [
+            '',
+            '',
+            'CREDITS',
+            '',
+            'Created by',
+            'Claude Code + Clawd Dispatch',
+            '',
+            'Built with',
+            'Phaser 3',
+            '',
+            'Thank you for playing!',
+            '',
+        ];
+
+        const creditsText = this.add.text(width / 2, height + 20, creditsContent.join('\n'), {
+            fontSize: '20px',
+            fontFamily: 'Georgia, serif',
+            color: '#ccccff',
+            align: 'center',
+            lineSpacing: 8,
+        }).setOrigin(0.5, 0).setAlpha(0);
+
+        this.tweens.add({
+            targets: creditsText,
+            alpha: 1,
+            delay: 2000,
+            duration: 500,
+        });
+
+        this.tweens.add({
+            targets: creditsText,
+            y: 280,
+            duration: 12000,
+            delay: 2000,
+            ease: 'Linear',
+        });
+
+        // "Play Again" button appears after a delay
+        this.time.delayedCall(2500, () => {
+            const btn = this.createButton(width / 2, height - 50, 'Play Again', () => {
+                this.scene.start('MenuScene');
+            }, 0x336633, 0x44aa44);
+            btn.bg.setAlpha(0);
+            btn.txt.setAlpha(0);
+            this.tweens.add({ targets: [btn.bg, btn.txt], alpha: 1, duration: 500 });
+        });
+    }
+
+    launchEpicFirework() {
+        const { width, height } = this.scale;
+        const colors = [0xff2244, 0x22ff44, 0x2244ff, 0xffff22, 0xff22ff, 0x22ffff, 0xff8800, 0xffffff, 0xff6688, 0x88ff66, 0x6688ff];
+        const cx = Phaser.Math.Between(50, width - 50);
+        const cy = Phaser.Math.Between(50, height - 100);
+        const color = Phaser.Utils.Array.GetRandom(colors);
+        const particleCount = Phaser.Math.Between(14, 24);
+
+        for (let p = 0; p < particleCount; p++) {
+            const angle = (Math.PI * 2 * p) / particleCount + Phaser.Math.FloatBetween(-0.15, 0.15);
+            const dist = Phaser.Math.Between(50, 140);
+            const size = Phaser.Math.Between(2, 6);
+            const circle = this.add.circle(cx, cy, size, color).setAlpha(1);
+            this.tweens.add({
+                targets: circle,
+                x: cx + Math.cos(angle) * dist,
+                y: cy + Math.sin(angle) * dist,
+                alpha: 0,
+                scaleX: 0.1,
+                scaleY: 0.1,
+                duration: Phaser.Math.Between(600, 1100),
+                ease: 'Power2',
+                onComplete: () => circle.destroy(),
+            });
+        }
+    }
+
+    hslToHex(h, s, l) {
+        s /= 100;
+        l /= 100;
+        const a = s * Math.min(l, 1 - l);
+        const f = (n) => {
+            const k = (n + h / 30) % 12;
+            const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+            return Math.round(255 * color).toString(16).padStart(2, '0');
+        };
+        return `#${f(0)}${f(8)}${f(4)}`;
+    }
+
+    createButton(x, y, label, callback, color = 0x4a4a8a, hoverColor = 0x6a6aaa) {
+        const bg = this.add.rectangle(x, y, 240, 50, color)
+            .setInteractive({ useHandCursor: true });
+
+        const txt = this.add.text(x, y, label, {
+            fontSize: '24px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        bg.on('pointerover', () => bg.setFillStyle(hoverColor));
+        bg.on('pointerout', () => bg.setFillStyle(color));
+        bg.on('pointerdown', callback);
+
+        return { bg, txt };
     }
 }
 
@@ -17218,7 +17542,7 @@ const config = {
     width: 800,
     height: 600,
     backgroundColor: '#16213e',
-    scene: [BootScene, MenuScene, LevelSelectScene, GameScene, LevelCompleteScene],
+    scene: [BootScene, MenuScene, LevelSelectScene, GameScene, LevelCompleteScene, GameCompleteScene],
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
