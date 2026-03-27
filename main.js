@@ -37,6 +37,7 @@ const LevelRegistry = {
     30: { type: 'jigsaw', config: { rows: 3, cols: 3 } },
     31: { type: 'memory-cards', config: { rows: 4, cols: 5, timeLimit: 60, reshuffleAfter: 3 } },
     32: { type: 'color-chain', config: { gridSize: 6, colors: 5, fillBoard: true } },
+    33: { type: 'light-toggle', config: { size: 5, randomize: true } },
 };
 
 // ============================================================
