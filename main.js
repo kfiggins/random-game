@@ -24,6 +24,7 @@ const LevelRegistry = {
     17: { type: 'reaction-time', config: { targets: 8, targetSize: 40, stayTime: 2000, timeLimit: 20, hasDecoys: true } },
     18: { type: 'math', config: { problems: 5, operations: ['add', 'subtract'], maxNum: 20, timeLimit: 45 } },
     19: { type: 'word-scramble', config: { wordLength: 6, showHint: false } },
+    20: { type: 'light-toggle', config: { size: 3, randomize: true } },
 };
 
 // ============================================================
@@ -217,6 +218,8 @@ class GameScene extends Phaser.Scene {
             this.createSlidingPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'sequence-logic') {
             this.createSequenceLogicPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'light-toggle') {
+            this.createLightTogglePuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -2041,6 +2044,125 @@ class GameScene extends Phaser.Scene {
                 }
             });
         });
+    }
+
+    createLightTogglePuzzle(config) {
+        const { width, height } = this.scale;
+        const { size } = config;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Turn ALL lights ON!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 95, 'Clicking a cell toggles it and its neighbors', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#666666',
+        }).setOrigin(0.5);
+
+        // Grid state: true = lit, false = dark
+        const grid = [];
+        for (let r = 0; r < size; r++) {
+            grid[r] = [];
+            for (let c = 0; c < size; c++) {
+                grid[r][c] = true; // start all on
+            }
+        }
+
+        // Apply random toggles from all-on state to guarantee solvability
+        const numToggles = Phaser.Math.Between(3, size * size);
+        for (let t = 0; t < numToggles; t++) {
+            const tr = Phaser.Math.Between(0, size - 1);
+            const tc = Phaser.Math.Between(0, size - 1);
+            // Toggle cell and neighbors
+            grid[tr][tc] = !grid[tr][tc];
+            if (tr > 0) grid[tr - 1][tc] = !grid[tr - 1][tc];
+            if (tr < size - 1) grid[tr + 1][tc] = !grid[tr + 1][tc];
+            if (tc > 0) grid[tr][tc - 1] = !grid[tr][tc - 1];
+            if (tc < size - 1) grid[tr][tc + 1] = !grid[tr][tc + 1];
+        }
+
+        // If all are already on after randomization, do one more toggle
+        const allOn = () => grid.every(row => row.every(cell => cell));
+        if (allOn()) {
+            const mr = Phaser.Math.Between(0, size - 1);
+            const mc = Phaser.Math.Between(0, size - 1);
+            grid[mr][mc] = !grid[mr][mc];
+            if (mr > 0) grid[mr - 1][mc] = !grid[mr - 1][mc];
+            if (mr < size - 1) grid[mr + 1][mc] = !grid[mr + 1][mc];
+            if (mc > 0) grid[mr][mc - 1] = !grid[mr][mc - 1];
+            if (mc < size - 1) grid[mr][mc + 1] = !grid[mr][mc + 1];
+        }
+
+        let moves = 0;
+        let solved = false;
+
+        // Move counter
+        const moveText = this.add.text(width / 2, 130, 'Moves: 0', {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Draw the grid
+        const cellSize = 80;
+        const gap = 6;
+        const totalSize = size * cellSize + (size - 1) * gap;
+        const startX = (width - totalSize) / 2 + cellSize / 2;
+        const startY = (height - totalSize) / 2 + cellSize / 2 + 30;
+
+        const cellGraphics = [];
+
+        const litColor = 0xffdd44;
+        const darkColor = 0x444444;
+
+        const updateCell = (r, c) => {
+            const color = grid[r][c] ? litColor : darkColor;
+            cellGraphics[r][c].setFillStyle(color);
+        };
+
+        for (let r = 0; r < size; r++) {
+            cellGraphics[r] = [];
+            for (let c = 0; c < size; c++) {
+                const x = startX + c * (cellSize + gap);
+                const y = startY + r * (cellSize + gap);
+                const color = grid[r][c] ? litColor : darkColor;
+
+                const cell = this.add.rectangle(x, y, cellSize, cellSize, color)
+                    .setStrokeStyle(2, 0x888888)
+                    .setInteractive({ useHandCursor: true });
+
+                cellGraphics[r][c] = cell;
+
+                cell.on('pointerdown', () => {
+                    if (solved) return;
+
+                    // Toggle this cell and orthogonal neighbors
+                    const toggles = [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
+                    toggles.forEach(([tr, tc]) => {
+                        if (tr >= 0 && tr < size && tc >= 0 && tc < size) {
+                            grid[tr][tc] = !grid[tr][tc];
+                            updateCell(tr, tc);
+                        }
+                    });
+
+                    moves++;
+                    moveText.setText(`Moves: ${moves}`);
+
+                    // Check win
+                    if (allOn()) {
+                        solved = true;
+                        moveText.setText(`Solved in ${moves} moves!`).setColor('#44dd44');
+                        this.time.delayedCall(800, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    }
+                });
+            }
+        }
     }
 }
 
