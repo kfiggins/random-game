@@ -46,6 +46,7 @@ const LevelRegistry = {
     39: { type: 'math', config: { problems: 4, mode: 'fill-operators', timeLimit: 60 } },
     40: { type: 'tower-of-hanoi', config: { discs: 5 } },
     41: { type: 'simon-says', config: { sequenceLength: 10, colors: 6, playbackSpeed: 400, replayAllowed: false } },
+    42: { type: 'color-chain', config: { gridSize: 7, colors: 8, fillBoard: true } },
 };
 
 // ============================================================
@@ -3470,10 +3471,31 @@ class GameScene extends Phaser.Scene {
             color: '#666666',
         }).setOrigin(0.5);
 
-        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff];
+        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa];
         let colorValues, endpoints;
 
-        if (gridSize === 6 && colors === 5 && fillBoard) {
+        if (gridSize === 7 && colors === 8 && fillBoard) {
+            // Hardcoded solvable 7x7 puzzle with 8 color pairs that fills all 49 cells
+            // Path 0 (red):    (0,0)→(0,1)→(1,1)→(1,0)→(2,0)→(3,0)
+            // Path 1 (green):  (0,2)→(0,3)→(0,4)→(1,4)→(1,3)→(1,2)→(2,2)
+            // Path 2 (blue):   (0,5)→(0,6)→(1,6)→(1,5)→(2,5)→(2,6)
+            // Path 3 (yellow): (2,1)→(3,1)→(3,2)→(3,3)→(2,3)→(2,4)
+            // Path 4 (purple): (3,4)→(3,5)→(3,6)→(4,6)→(4,5)→(4,4)
+            // Path 5 (orange): (4,0)→(4,1)→(4,2)→(4,3)→(5,3)→(5,2)
+            // Path 6 (cyan):   (5,4)→(5,5)→(5,6)→(6,6)→(6,5)→(6,4)
+            // Path 7 (pink):   (5,1)→(5,0)→(6,0)→(6,1)→(6,2)→(6,3)
+            colorValues = allColorValues.slice(0, 8);
+            endpoints = [
+                { color: 0, start: { r: 0, c: 0 }, end: { r: 3, c: 0 } },
+                { color: 1, start: { r: 0, c: 2 }, end: { r: 2, c: 2 } },
+                { color: 2, start: { r: 0, c: 5 }, end: { r: 2, c: 6 } },
+                { color: 3, start: { r: 2, c: 1 }, end: { r: 2, c: 4 } },
+                { color: 4, start: { r: 3, c: 4 }, end: { r: 4, c: 4 } },
+                { color: 5, start: { r: 4, c: 0 }, end: { r: 5, c: 2 } },
+                { color: 6, start: { r: 5, c: 4 }, end: { r: 6, c: 4 } },
+                { color: 7, start: { r: 5, c: 1 }, end: { r: 6, c: 3 } },
+            ];
+        } else if (gridSize === 6 && colors === 5 && fillBoard) {
             // Hardcoded solvable 6x6 puzzle with 5 color pairs that fills all 36 cells
             // Path A (red):    (0,0)→(0,1)→(0,2)→(1,2)→(1,1)→(1,0)→(2,0)
             // Path B (green):  (0,3)→(0,4)→(0,5)→(1,5)→(1,4)→(1,3)→(2,3)
