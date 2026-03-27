@@ -32,6 +32,7 @@ const LevelRegistry = {
     25: { type: 'sliding-puzzle', config: { size: 4 } },
     26: { type: 'pattern-complete', config: { patternLength: 9, numChoices: 4, is2D: true } },
     27: { type: 'maze', config: { width: 15, height: 15, cellSize: 35, hasKeys: true, keys: 2 } },
+    28: { type: 'math', config: { problems: 6, operations: ['multiply', 'divide'], maxNum: 12, timeLimit: 40 } },
 };
 
 // ============================================================
@@ -1695,6 +1696,16 @@ class GameScene extends Phaser.Scene {
                 b_val = Phaser.Math.Between(1, a - 1);
                 answer = a - b_val;
                 symbol = '-';
+            } else if (op === 'multiply') {
+                a = Phaser.Math.Between(2, maxNum);
+                b_val = Phaser.Math.Between(2, maxNum);
+                answer = a * b_val;
+                symbol = '×';
+            } else if (op === 'divide') {
+                b_val = Phaser.Math.Between(2, maxNum);
+                answer = Phaser.Math.Between(1, maxNum);
+                a = b_val * answer;
+                symbol = '÷';
             } else {
                 a = Phaser.Math.Between(1, maxNum - 1);
                 b_val = Phaser.Math.Between(1, maxNum - a);
