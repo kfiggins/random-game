@@ -74,6 +74,7 @@ const LevelRegistry = {
     67: { type: 'word-scramble', config: { mode: 'crossword', words: 4 } },
     68: { type: 'math', config: { problems: 3, mode: 'equation-builder', timeLimit: 90 } },
     69: { type: 'color-chain', config: { gridSize: 10, colors: 12, fillBoard: true, timeLimit: 180 } },
+    70: { type: 'multi-puzzle', config: { stages: 5, timeLimit: 180 } },
 };
 
 // ============================================================
@@ -5308,10 +5309,624 @@ class GameScene extends Phaser.Scene {
             });
         };
 
+        // ---- Level 70 Stage 1: 5x4 Memory Cards (10 pairs) ----
+        const startL70Stage1 = () => {
+            const rows = 4, cols = 5;
+            const totalCards = rows * cols;
+            const numPairs = totalCards / 2;
+
+            const cardColors = [
+                { name: 'Red', hex: 0xff4444 },
+                { name: 'Blue', hex: 0x4488ff },
+                { name: 'Green', hex: 0x44dd44 },
+                { name: 'Purple', hex: 0xaa44ff },
+                { name: 'Orange', hex: 0xff8844 },
+                { name: 'Cyan', hex: 0x44dddd },
+                { name: 'Yellow', hex: 0xffdd44 },
+                { name: 'Pink', hex: 0xff44aa },
+                { name: 'Lime', hex: 0xaaff44 },
+                { name: 'Coral', hex: 0xff6666 },
+            ];
+
+            const cardData = [];
+            for (let i = 0; i < numPairs; i++) {
+                cardData.push(cardColors[i], cardColors[i]);
+            }
+            Phaser.Utils.Array.Shuffle(cardData);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 1: Find all matching pairs!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const padding = 12;
+            const availW = width - 40;
+            const availH = height - 180;
+            const cardW = Math.min(100, Math.floor((availW - (cols - 1) * padding) / cols));
+            const cardH = Math.min(120, Math.floor((availH - (rows - 1) * padding) / rows));
+            const gridW = cols * (cardW + padding) - padding;
+            const gridH = rows * (cardH + padding) - padding;
+            const startX = (width - gridW) / 2 + cardW / 2;
+            const startY = (height - gridH) / 2 + 10;
+
+            let firstCard = null;
+            let secondCard = null;
+            let lockBoard = false;
+            let matchesFound = 0;
+
+            const cards = [];
+
+            for (let i = 0; i < totalCards; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = startX + col * (cardW + padding);
+                const y = startY + row * (cardH + padding);
+                const color = cardData[i];
+
+                const back = this.add.rectangle(x, y, cardW, cardH, 0x3a3a6a)
+                    .setInteractive({ useHandCursor: true });
+                const qmFontSize = Math.min(36, Math.floor(cardH * 0.3));
+                const questionMark = this.add.text(x, y, '?', {
+                    fontSize: `${qmFontSize}px`,
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#888888',
+                }).setOrigin(0.5);
+
+                const face = this.add.rectangle(x, y, cardW, cardH, color.hex).setVisible(false);
+                const lblFontSize = Math.min(16, Math.floor(cardW * 0.16));
+                const colorLabel = this.add.text(x, y, color.name, {
+                    fontSize: `${lblFontSize}px`,
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5).setVisible(false);
+
+                stageElements.push(back, questionMark, face, colorLabel);
+
+                const card = { back, questionMark, face, colorLabel, colorName: color.name, flipped: false, matched: false };
+                cards.push(card);
+
+                back.on('pointerover', () => { if (!card.flipped && !card.matched) back.setFillStyle(0x5a5a9a); });
+                back.on('pointerout', () => { if (!card.flipped && !card.matched) back.setFillStyle(0x3a3a6a); });
+
+                back.on('pointerdown', () => {
+                    if (lockBoard || card.flipped || card.matched) return;
+
+                    card.flipped = true;
+                    back.setVisible(false);
+                    questionMark.setVisible(false);
+                    face.setVisible(true);
+                    colorLabel.setVisible(true);
+
+                    if (!firstCard) {
+                        firstCard = card;
+                    } else {
+                        secondCard = card;
+                        lockBoard = true;
+
+                        if (firstCard.colorName === secondCard.colorName) {
+                            firstCard.matched = true;
+                            secondCard.matched = true;
+                            firstCard.face.setAlpha(0.6);
+                            secondCard.face.setAlpha(0.6);
+                            firstCard.colorLabel.setAlpha(0.6);
+                            secondCard.colorLabel.setAlpha(0.6);
+                            firstCard = null;
+                            secondCard = null;
+                            lockBoard = false;
+                            matchesFound++;
+
+                            if (matchesFound >= numPairs) {
+                                this.time.delayedCall(500, () => advanceStage());
+                            }
+                        } else {
+                            const fc = firstCard;
+                            const sc = secondCard;
+                            this.time.delayedCall(800, () => {
+                                fc.flipped = false;
+                                fc.back.setVisible(true);
+                                fc.questionMark.setVisible(true);
+                                fc.face.setVisible(false);
+                                fc.colorLabel.setVisible(false);
+                                sc.flipped = false;
+                                sc.back.setVisible(true);
+                                sc.questionMark.setVisible(true);
+                                sc.face.setVisible(false);
+                                sc.colorLabel.setVisible(false);
+                                firstCard = null;
+                                secondCard = null;
+                                lockBoard = false;
+                            });
+                        }
+                    }
+                });
+            }
+        };
+
+        // ---- Level 70 Stage 2: Simon Says (8-step sequence) ----
+        const startL70Stage2 = () => {
+            const sequenceLength = 8;
+            const numColors = 4;
+            const playbackSpeed = 500;
+
+            const allColorDefs = [
+                { name: 'Red', hex: 0xff4444, dimHex: 0x882222 },
+                { name: 'Blue', hex: 0x4488ff, dimHex: 0x224488 },
+                { name: 'Green', hex: 0x44dd44, dimHex: 0x227722 },
+                { name: 'Yellow', hex: 0xffdd44, dimHex: 0x887722 },
+            ];
+
+            const colorDefs = allColorDefs.slice(0, numColors);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 2: Watch the sequence!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const progressText = this.add.text(width / 2, height - 80, '', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressText);
+
+            const ssCols = 2;
+            const ssRows = 2;
+            const btnSize = 120;
+            const gap = 20;
+            const gridW = ssCols * btnSize + (ssCols - 1) * gap;
+            const gridH = ssRows * btnSize + (ssRows - 1) * gap;
+            const gridStartX = width / 2 - gridW / 2 + btnSize / 2;
+            const gridStartY = height / 2 - gridH / 2 + btnSize / 2;
+
+            const buttons = colorDefs.map((colorDef, i) => {
+                const col = i % ssCols;
+                const row = Math.floor(i / ssCols);
+                const x = gridStartX + col * (btnSize + gap);
+                const y = gridStartY + row * (btnSize + gap);
+
+                const rect = this.add.rectangle(x, y, btnSize, btnSize, colorDef.dimHex)
+                    .setInteractive({ useHandCursor: true });
+                const label = this.add.text(x, y, colorDef.name, {
+                    fontSize: '18px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                stageElements.push(rect, label);
+
+                return { rect, colorDef };
+            });
+
+            const sequence = [];
+            for (let i = 0; i < sequenceLength; i++) {
+                sequence.push(Phaser.Math.Between(0, colorDefs.length - 1));
+            }
+
+            let playerIndex = 0;
+            let inputEnabled = false;
+
+            const lightUp = (btnIndex, duration) => {
+                const btn = buttons[btnIndex];
+                btn.rect.setFillStyle(btn.colorDef.hex);
+                this.time.delayedCall(duration * 0.6, () => {
+                    btn.rect.setFillStyle(btn.colorDef.dimHex);
+                });
+            };
+
+            const playSequence = () => {
+                inputEnabled = false;
+                playerIndex = 0;
+                instrText.setText('Stage 2: Watch the sequence!');
+                progressText.setText('');
+
+                sequence.forEach((btnIndex, i) => {
+                    this.time.delayedCall(playbackSpeed * (i + 1), () => {
+                        lightUp(btnIndex, playbackSpeed);
+                    });
+                });
+
+                this.time.delayedCall(playbackSpeed * (sequence.length + 1), () => {
+                    inputEnabled = true;
+                    instrText.setText('Stage 2: Your turn! Repeat the sequence.');
+                    progressText.setText(`0/${sequenceLength}`);
+                });
+            };
+
+            buttons.forEach((btn, btnIndex) => {
+                btn.rect.on('pointerdown', () => {
+                    if (!inputEnabled) return;
+
+                    btn.rect.setFillStyle(btn.colorDef.hex);
+                    this.time.delayedCall(200, () => {
+                        btn.rect.setFillStyle(btn.colorDef.dimHex);
+                    });
+
+                    if (sequence[playerIndex] === btnIndex) {
+                        playerIndex++;
+                        progressText.setText(`${playerIndex}/${sequenceLength}`);
+
+                        if (playerIndex >= sequenceLength) {
+                            inputEnabled = false;
+                            instrText.setText('Correct!');
+                            this.time.delayedCall(500, () => advanceStage());
+                        }
+                    } else {
+                        inputEnabled = false;
+                        instrText.setText('Wrong! Watch again...');
+                        progressText.setText('');
+                        this.time.delayedCall(1000, () => {
+                            playSequence();
+                        });
+                    }
+                });
+            });
+
+            playSequence();
+        };
+
+        // ---- Level 70 Stage 3: Tower of Hanoi (4 discs) ----
+        const startL70Stage3 = () => {
+            const numDiscs = 4;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 3: Solve the Tower of Hanoi!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const pegs = [[], [], []];
+            for (let i = numDiscs; i >= 1; i--) {
+                pegs[0].push(i);
+            }
+
+            const pegX = [width / 2 - 180, width / 2, width / 2 + 180];
+            const baseY = height - 120;
+            const pegHeight = 180;
+            const discHeight = 28;
+            const maxDiscWidth = 140;
+            const minDiscWidth = 40;
+
+            // Draw pegs
+            for (let p = 0; p < 3; p++) {
+                const pegBase = this.add.rectangle(pegX[p], baseY, 160, 6, 0x888888);
+                const pegPole = this.add.rectangle(pegX[p], baseY - pegHeight / 2, 6, pegHeight, 0x888888);
+                stageElements.push(pegBase, pegPole);
+
+                // Peg labels
+                const pegLabel = this.add.text(pegX[p], baseY + 16, `Peg ${p + 1}`, {
+                    fontSize: '14px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#666666',
+                }).setOrigin(0.5);
+                stageElements.push(pegLabel);
+            }
+
+            const discColors = [0xff4444, 0x4488ff, 0x44dd44, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd];
+            let discElements = [];
+            let selectedPeg = -1;
+            let selectedHighlight = null;
+            let moveCount = 0;
+
+            const moveText = this.add.text(width / 2, height - 80, 'Moves: 0', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(moveText);
+
+            const renderDiscs = () => {
+                discElements.forEach(el => {
+                    el.bg.destroy();
+                    el.label.destroy();
+                    stageElements = stageElements.filter(e => e !== el.bg && e !== el.label);
+                });
+                discElements = [];
+
+                for (let p = 0; p < 3; p++) {
+                    for (let d = 0; d < pegs[p].length; d++) {
+                        const discVal = pegs[p][d];
+                        const discW = minDiscWidth + (discVal - 1) * ((maxDiscWidth - minDiscWidth) / (numDiscs - 1));
+                        const x = pegX[p];
+                        const y = baseY - 6 - d * discHeight - discHeight / 2;
+                        const color = discColors[(discVal - 1) % discColors.length];
+
+                        const bg = this.add.rectangle(x, y, discW, discHeight - 4, color)
+                            .setInteractive({ useHandCursor: true });
+                        const label = this.add.text(x, y, `${discVal}`, {
+                            fontSize: '16px',
+                            fontFamily: 'Arial, sans-serif',
+                            fontStyle: 'bold',
+                            color: '#ffffff',
+                        }).setOrigin(0.5);
+                        stageElements.push(bg, label);
+                        discElements.push({ bg, label });
+                    }
+                }
+            };
+
+            const handlePegClick = (pegIndex) => {
+                if (selectedPeg === -1) {
+                    if (pegs[pegIndex].length === 0) return;
+                    selectedPeg = pegIndex;
+                    if (selectedHighlight) { selectedHighlight.destroy(); stageElements = stageElements.filter(e => e !== selectedHighlight); }
+                    selectedHighlight = this.add.rectangle(pegX[pegIndex], baseY - pegHeight - 10, 160, 4, 0xffdd44);
+                    stageElements.push(selectedHighlight);
+                } else {
+                    if (pegIndex !== selectedPeg) {
+                        const topDisc = pegs[selectedPeg][pegs[selectedPeg].length - 1];
+                        const targetTop = pegs[pegIndex].length > 0 ? pegs[pegIndex][pegs[pegIndex].length - 1] : Infinity;
+                        if (topDisc < targetTop) {
+                            pegs[pegIndex].push(pegs[selectedPeg].pop());
+                            moveCount++;
+                            moveText.setText(`Moves: ${moveCount}`);
+                            renderDiscs();
+
+                            if (pegs[2].length === numDiscs) {
+                                this.time.delayedCall(500, () => advanceStage());
+                            }
+                        }
+                    }
+                    selectedPeg = -1;
+                    if (selectedHighlight) { selectedHighlight.destroy(); stageElements = stageElements.filter(e => e !== selectedHighlight); selectedHighlight = null; }
+                }
+            };
+
+            // Clickable zones for each peg
+            for (let p = 0; p < 3; p++) {
+                const zone = this.add.rectangle(pegX[p], baseY - pegHeight / 2, 160, pegHeight + 20, 0x000000, 0)
+                    .setInteractive({ useHandCursor: true });
+                stageElements.push(zone);
+                const pegIdx = p;
+                zone.on('pointerdown', () => handlePegClick(pegIdx));
+            }
+
+            renderDiscs();
+        };
+
+        // ---- Level 70 Stage 4: 6 Math Problems (all operations) ----
+        const startL70Stage4 = () => {
+            const problems = 6;
+            const operations = ['add', 'subtract', 'multiply', 'divide'];
+            const maxNum = 20;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 4: Solve the math problems!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            let currentProblem = 0;
+
+            const progressText = this.add.text(width / 2, height - 80, `Problem 1/${problems}`, {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressText);
+
+            let problemText = null;
+            let choiceButtons = [];
+            let feedbackText = null;
+
+            const showProblem = () => {
+                if (problemText) { problemText.destroy(); stageElements = stageElements.filter(e => e !== problemText); }
+                choiceButtons.forEach(b => { b.bg.destroy(); b.text.destroy(); stageElements = stageElements.filter(e => e !== b.bg && e !== b.text); });
+                choiceButtons = [];
+                if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); feedbackText = null; }
+
+                progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+                const op = Phaser.Utils.Array.GetRandom(operations);
+                let a, b_val, answer, symbol;
+
+                if (op === 'subtract') {
+                    a = Phaser.Math.Between(2, maxNum);
+                    b_val = Phaser.Math.Between(1, a - 1);
+                    answer = a - b_val;
+                    symbol = '-';
+                } else if (op === 'multiply') {
+                    a = Phaser.Math.Between(2, Math.min(maxNum, 12));
+                    b_val = Phaser.Math.Between(2, Math.min(maxNum, 12));
+                    answer = a * b_val;
+                    symbol = '×';
+                } else if (op === 'divide') {
+                    b_val = Phaser.Math.Between(2, Math.min(maxNum, 12));
+                    answer = Phaser.Math.Between(2, Math.min(maxNum, 12));
+                    a = b_val * answer;
+                    symbol = '÷';
+                } else {
+                    a = Phaser.Math.Between(1, maxNum - 1);
+                    b_val = Phaser.Math.Between(1, maxNum - a);
+                    answer = a + b_val;
+                    symbol = '+';
+                }
+
+                problemText = this.add.text(width / 2, height / 2 - 80, `${a} ${symbol} ${b_val} = ?`, {
+                    fontSize: '48px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                stageElements.push(problemText);
+
+                const wrongSet = new Set();
+                while (wrongSet.size < 3) {
+                    const offset = Phaser.Math.Between(-5, 5);
+                    const wrong = answer + offset;
+                    if (wrong !== answer && wrong > 0) {
+                        wrongSet.add(wrong);
+                    }
+                }
+
+                const choices = Phaser.Utils.Array.Shuffle([answer, ...wrongSet]);
+                const btnWidth = 120;
+                const btnSpacing = 140;
+                const bStartX = width / 2 - (btnSpacing * 1.5);
+                const btnY = height / 2 + 40;
+
+                choices.forEach((choice, i) => {
+                    const bx = bStartX + i * btnSpacing;
+                    const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(bx, btnY, `${choice}`, {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    stageElements.push(bg, txt);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                    bg.on('pointerdown', () => {
+                        if (choice === answer) {
+                            bg.setFillStyle(0x44dd44);
+                            choiceButtons.forEach(b => b.bg.disableInteractive());
+
+                            if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); }
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#44dd44',
+                            }).setOrigin(0.5);
+                            stageElements.push(feedbackText);
+
+                            currentProblem++;
+                            if (currentProblem >= problems) {
+                                this.time.delayedCall(800, () => advanceStage());
+                            } else {
+                                this.time.delayedCall(800, () => showProblem());
+                            }
+                        } else {
+                            bg.setFillStyle(0xff4444);
+                            bg.disableInteractive();
+                            if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); }
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#ff4444',
+                            }).setOrigin(0.5);
+                            stageElements.push(feedbackText);
+                        }
+                    });
+
+                    choiceButtons.push({ bg, text: txt });
+                });
+            };
+
+            showProblem();
+        };
+
+        // ---- Level 70 Stage 5: 11x11 Maze ----
+        const startL70Stage5 = () => {
+            const mazeW = 11, mazeH = 11, cellSize = 40;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 5: Navigate the maze!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            // Generate maze using recursive backtracker
+            const maze = Array.from({ length: mazeH }, () => Array(mazeW).fill(1));
+
+            const carveMaze = (r, c) => {
+                maze[r][c] = 0;
+                const dirs = [[0, 2], [0, -2], [2, 0], [-2, 0]];
+                for (let i = dirs.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+                }
+                for (const [dr, dc] of dirs) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 1) {
+                        maze[r + dr / 2][c + dc / 2] = 0;
+                        carveMaze(nr, nc);
+                    }
+                }
+            };
+            carveMaze(0, 0);
+            maze[mazeH - 1][mazeW - 1] = 0;
+
+            const gridW = mazeW * cellSize;
+            const gridH = mazeH * cellSize;
+            const offsetX = (width - gridW) / 2;
+            const offsetY = (height - gridH) / 2 + 10;
+
+            // Draw maze
+            for (let row = 0; row < mazeH; row++) {
+                for (let col = 0; col < mazeW; col++) {
+                    const x = offsetX + col * cellSize + cellSize / 2;
+                    const y = offsetY + row * cellSize + cellSize / 2;
+                    if (maze[row][col] === 1) {
+                        const wall = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, 0x2a2a4a);
+                        stageElements.push(wall);
+                    } else {
+                        const path = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, 0x4a4a6a);
+                        stageElements.push(path);
+                    }
+                }
+            }
+
+            // Exit star
+            const exitX = offsetX + (mazeW - 1) * cellSize + cellSize / 2;
+            const exitY = offsetY + (mazeH - 1) * cellSize + cellSize / 2;
+            const star = this.add.star(exitX, exitY, 5, 8, 18, 0xffdd44);
+            stageElements.push(star);
+
+            // Player
+            let playerCol = 0;
+            let playerRow = 0;
+            const player = this.add.circle(
+                offsetX + cellSize / 2,
+                offsetY + cellSize / 2,
+                cellSize / 3, 0x44dd44
+            );
+            stageElements.push(player);
+
+            let inputLocked = false;
+
+            const movePlayer = (dCol, dRow) => {
+                const newCol = playerCol + dCol;
+                const newRow = playerRow + dRow;
+                if (newCol < 0 || newCol >= mazeW || newRow < 0 || newRow >= mazeH) return;
+                if (maze[newRow][newCol] === 1) return;
+
+                playerCol = newCol;
+                playerRow = newRow;
+                player.setPosition(
+                    offsetX + playerCol * cellSize + cellSize / 2,
+                    offsetY + playerRow * cellSize + cellSize / 2
+                );
+
+                if (playerCol === mazeW - 1 && playerRow === mazeH - 1) {
+                    inputLocked = true;
+                    player.setFillStyle(0xffdd44);
+                    this.time.delayedCall(500, () => advanceStage());
+                }
+            };
+
+            this.input.keyboard.on('keydown-LEFT', () => { if (!inputLocked) movePlayer(-1, 0); });
+            this.input.keyboard.on('keydown-RIGHT', () => { if (!inputLocked) movePlayer(1, 0); });
+            this.input.keyboard.on('keydown-UP', () => { if (!inputLocked) movePlayer(0, -1); });
+            this.input.keyboard.on('keydown-DOWN', () => { if (!inputLocked) movePlayer(0, 1); });
+        };
+
         // Build stage functions array based on level
-        const stageFunctions = this.level === 60
-            ? [startL60Stage1, startL60Stage2, startL60Stage3, startL60Stage4]
-            : [startStage1, startStage2, startStage3];
+        let stageFunctions;
+        if (this.level === 70) {
+            stageFunctions = [startL70Stage1, startL70Stage2, startL70Stage3, startL70Stage4, startL70Stage5];
+        } else if (this.level === 60) {
+            stageFunctions = [startL60Stage1, startL60Stage2, startL60Stage3, startL60Stage4];
+        } else {
+            stageFunctions = [startStage1, startStage2, startStage3];
+        }
 
         // Start with stage 1
         stageFunctions[0]();
