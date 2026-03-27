@@ -5,8 +5,7 @@
 // puzzle type logic in GameScene.
 // ============================================================
 const LevelRegistry = {
-    // Example:
-    // 1: { type: 'click-target', config: { targets: 3, timeLimit: 10 } },
+    1: { type: 'color-match', config: { pairs: 3, colors: 4, timeLimit: 30 } },
 };
 
 // ============================================================
@@ -176,13 +175,18 @@ class GameScene extends Phaser.Scene {
         // Look up level in registry
         const levelData = LevelRegistry[this.level];
 
-        if (levelData) {
-            // Future: dispatch to puzzle type handler based on levelData.type
+        if (levelData && levelData.type === 'color-match') {
+            this.createColorMatchPuzzle(levelData.config);
+        } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
                 fontFamily: 'Arial, sans-serif',
                 color: '#cccccc',
             }).setOrigin(0.5);
+
+            this.createButton(width / 2, height - 100, 'Complete Level', () => {
+                this.scene.start('LevelCompleteScene', { level: this.level });
+            });
         } else {
             this.add.text(width / 2, height / 2 - 20, 'Puzzle Coming Soon!', {
                 fontSize: '28px',
@@ -195,15 +199,194 @@ class GameScene extends Phaser.Scene {
                 fontFamily: 'Arial, sans-serif',
                 color: '#888888',
             }).setOrigin(0.5);
-        }
 
-        // Complete Level button (placeholder for testing flow)
-        this.createButton(width / 2, height - 100, 'Complete Level', () => {
-            this.scene.start('LevelCompleteScene', { level: this.level });
-        });
+            this.createButton(width / 2, height - 100, 'Complete Level', () => {
+                this.scene.start('LevelCompleteScene', { level: this.level });
+            });
+        }
 
         // Back to Menu button
         this.createButton(width / 2, height - 40, 'Back to Menu', () => {
+            this.scene.start('MenuScene');
+        }, 0x5a3a3a, 0x7a5a5a);
+    }
+
+    createColorMatchPuzzle(config) {
+        const { width, height } = this.scale;
+        const { pairs, colors: numColors, timeLimit } = config;
+
+        const allColors = [
+            { name: 'Red', hex: 0xff4444 },
+            { name: 'Blue', hex: 0x4488ff },
+            { name: 'Green', hex: 0x44dd44 },
+            { name: 'Yellow', hex: 0xffdd44 },
+        ];
+
+        // Pick random colors for this puzzle
+        const shuffled = Phaser.Utils.Array.Shuffle([...allColors]).slice(0, pairs);
+        const leftOrder = Phaser.Utils.Array.Shuffle([...shuffled]);
+        const rightOrder = Phaser.Utils.Array.Shuffle([...shuffled]);
+
+        const circleRadius = 36;
+        const spacing = 90;
+        const startY = 120;
+        const leftX = width / 2 - 140;
+        const rightX = width / 2 + 140;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Match the colors! Click left, then right.', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        let matchesRemaining = pairs;
+        let selectedLeft = null;
+
+        // Column labels
+        this.add.text(leftX, startY - 40, 'Pick', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#888888',
+        }).setOrigin(0.5);
+
+        this.add.text(rightX, startY - 40, 'Match', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#888888',
+        }).setOrigin(0.5);
+
+        // Create left circles
+        const leftCircles = leftOrder.map((colorData, i) => {
+            const y = startY + i * spacing;
+            const circle = this.add.circle(leftX, y, circleRadius, colorData.hex)
+                .setInteractive({ useHandCursor: true });
+            circle.colorName = colorData.name;
+            circle.matched = false;
+
+            // Selection outline
+            const outline = this.add.circle(leftX, y, circleRadius + 4)
+                .setStrokeStyle(3, 0xffffff)
+                .setVisible(false);
+            circle.outline = outline;
+
+            circle.on('pointerdown', () => {
+                if (circle.matched) return;
+
+                // Deselect previous
+                if (selectedLeft && selectedLeft !== circle) {
+                    selectedLeft.outline.setVisible(false);
+                }
+
+                selectedLeft = circle;
+                circle.outline.setVisible(true);
+            });
+
+            return circle;
+        });
+
+        // Create right circles
+        const rightCircles = rightOrder.map((colorData, i) => {
+            const y = startY + i * spacing;
+            const circle = this.add.circle(rightX, y, circleRadius, colorData.hex)
+                .setInteractive({ useHandCursor: true });
+            circle.colorName = colorData.name;
+            circle.matched = false;
+
+            circle.on('pointerdown', () => {
+                if (circle.matched || !selectedLeft) return;
+
+                if (selectedLeft.colorName === circle.colorName) {
+                    // Correct match
+                    selectedLeft.setFillStyle(0x228822);
+                    circle.setFillStyle(0x228822);
+                    selectedLeft.outline.setVisible(false);
+                    selectedLeft.matched = true;
+                    circle.matched = true;
+                    selectedLeft.disableInteractive();
+                    circle.disableInteractive();
+                    selectedLeft = null;
+                    matchesRemaining--;
+
+                    if (matchesRemaining <= 0) {
+                        timerEvent.remove(false);
+                        this.time.delayedCall(500, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    }
+                } else {
+                    // Wrong match - flash red
+                    const origLeft = selectedLeft.fillColor;
+                    const origRight = circle.fillColor;
+                    selectedLeft.setFillStyle(0xaa0000);
+                    circle.setFillStyle(0xaa0000);
+                    selectedLeft.outline.setVisible(false);
+
+                    const prevLeft = selectedLeft;
+                    selectedLeft = null;
+
+                    this.time.delayedCall(300, () => {
+                        if (!prevLeft.matched) prevLeft.setFillStyle(origLeft);
+                        if (!circle.matched) circle.setFillStyle(origRight);
+                    });
+                }
+            });
+
+            return circle;
+        });
+
+        this.colorMatchCleanup = () => {
+            timerEvent.remove(false);
+        };
+    }
+
+    handleTimeUp() {
+        const { width, height } = this.scale;
+
+        if (this.colorMatchCleanup) this.colorMatchCleanup();
+
+        // Disable all interactive objects
+        this.children.list.forEach(child => {
+            if (child.input) child.disableInteractive();
+        });
+
+        // Overlay
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7);
+
+        this.add.text(width / 2, height / 2 - 40, 'Time Up!', {
+            fontSize: '40px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        this.createButton(width / 2, height / 2 + 30, 'Retry', () => {
+            this.scene.start('GameScene', { level: this.level });
+        });
+
+        this.createButton(width / 2, height / 2 + 90, 'Back to Menu', () => {
             this.scene.start('MenuScene');
         }, 0x5a3a3a, 0x7a5a5a);
     }
