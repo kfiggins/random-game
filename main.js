@@ -22,6 +22,7 @@ const LevelRegistry = {
     15: { type: 'maze', config: { width: 11, height: 11, cellSize: 45 } },
     16: { type: 'sequence-logic', config: { sequenceLength: 5, numChoices: 4 } },
     17: { type: 'reaction-time', config: { targets: 8, targetSize: 40, stayTime: 2000, timeLimit: 20, hasDecoys: true } },
+    18: { type: 'math', config: { problems: 5, operations: ['add', 'subtract'], maxNum: 20, timeLimit: 45 } },
 };
 
 // ============================================================
@@ -1296,13 +1297,17 @@ class GameScene extends Phaser.Scene {
             progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
 
             // Generate two random numbers
-            const a = Phaser.Math.Between(1, maxNum - 1);
-            const b_val = Phaser.Math.Between(1, maxNum - a);
             const op = Phaser.Utils.Array.GetRandom(operations);
+            let a, b_val, answer, symbol;
 
-            let answer;
-            let symbol;
-            if (op === 'add') {
+            if (op === 'subtract') {
+                a = Phaser.Math.Between(2, maxNum);
+                b_val = Phaser.Math.Between(1, a - 1);
+                answer = a - b_val;
+                symbol = '-';
+            } else {
+                a = Phaser.Math.Between(1, maxNum - 1);
+                b_val = Phaser.Math.Between(1, maxNum - a);
                 answer = a + b_val;
                 symbol = '+';
             }
