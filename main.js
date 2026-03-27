@@ -75,6 +75,7 @@ const LevelRegistry = {
     68: { type: 'math', config: { problems: 3, mode: 'equation-builder', timeLimit: 90 } },
     69: { type: 'color-chain', config: { gridSize: 10, colors: 12, fillBoard: true, timeLimit: 180 } },
     70: { type: 'multi-puzzle', config: { stages: 5, timeLimit: 180 } },
+    71: { type: 'simon-says', config: { sequenceLength: 15, colors: 8, playbackSpeed: 300, replayAllowed: false, decoyFlash: true } },
 };
 
 // ============================================================
@@ -717,7 +718,7 @@ class GameScene extends Phaser.Scene {
 
     createSimonSaysPuzzle(config) {
         const { width, height } = this.scale;
-        const { sequenceLength, colors: numColors, playbackSpeed, replayAllowed } = config;
+        const { sequenceLength, colors: numColors, playbackSpeed, replayAllowed, decoyFlash } = config;
 
         const allColorDefs = [
             { name: 'Red', hex: 0xff4444, dimHex: 0x882222 },
@@ -803,6 +804,26 @@ class GameScene extends Phaser.Scene {
                     lightUp(btnIndex, playbackSpeed);
                 });
             });
+
+            // Decoy flashes: briefly flash random non-sequence buttons during playback
+            if (decoyFlash) {
+                sequence.forEach((btnIndex, i) => {
+                    const delay = playbackSpeed * (i + 1) + playbackSpeed * 0.3;
+                    this.time.delayedCall(delay, () => {
+                        // Pick a button that is NOT the current sequence button
+                        const candidates = [];
+                        for (let c = 0; c < buttons.length; c++) {
+                            if (c !== btnIndex) candidates.push(c);
+                        }
+                        const decoyIndex = candidates[Phaser.Math.Between(0, candidates.length - 1)];
+                        const decoyBtn = buttons[decoyIndex];
+                        decoyBtn.rect.setFillStyle(decoyBtn.colorDef.hex);
+                        this.time.delayedCall(playbackSpeed * 0.2, () => {
+                            decoyBtn.rect.setFillStyle(decoyBtn.colorDef.dimHex);
+                        });
+                    });
+                });
+            }
 
             this.time.delayedCall(playbackSpeed * (sequence.length + 1), () => {
                 inputEnabled = true;
