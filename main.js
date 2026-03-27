@@ -97,6 +97,7 @@ const LevelRegistry = {
     90: { type: 'multi-puzzle', config: { stages: 8, timeLimit: 300 } },
     91: { type: 'simon-says', config: { sequenceLength: 20, colors: 8, playbackSpeed: 250, replayAllowed: false, decoyFlash: true, speedUp: true } },
     92: { type: 'memory-cards', config: { rows: 8, cols: 8, timeLimit: 25, reshuffleAfter: 1, flipBackSpeed: 200, blackout: true, fakeCards: 6, morphing: true } },
+    93: { type: 'maze', config: { width: 41, height: 41, cellSize: 14, fogOfWar: true, viewRadius: 1, enemies: 10, traps: 12, timeLimit: 60, hasKeys: true, keys: 5, teleporters: 4, darkZones: true, shifting: true } },
 };
 
 // ============================================================
@@ -1435,7 +1436,7 @@ class GameScene extends Phaser.Scene {
 
     createMazePuzzle(config) {
         const { width, height } = this.scale;
-        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps, timeLimit, teleporters: numTeleporters, darkZones } = config;
+        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps, timeLimit, teleporters: numTeleporters, darkZones, shifting } = config;
 
         // Generate maze using recursive backtracker algorithm
         // 0 = path, 1 = wall, 2+ = door (blocked until key collected)
@@ -1577,7 +1578,7 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        const instrText = (darkZones && numTeleporters) ? 'Nightmare maze! Dark zones, portals, keys, enemies & traps!' : (hasKeys && numEnemies && numTraps && numTeleporters) ? 'Everything! Keys, enemies, traps & portals! Reach the star!' : (hasKeys && numEnemies && numTraps && timeLimit) ? 'Keys, enemies, traps & timer! Reach the star!' : hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
+        const instrText = (shifting && darkZones) ? 'NIGHTMARE! Shifting walls, dark zones, portals, enemies & traps!' : (darkZones && numTeleporters) ? 'Nightmare maze! Dark zones, portals, keys, enemies & traps!' : (hasKeys && numEnemies && numTraps && numTeleporters) ? 'Everything! Keys, enemies, traps & portals! Reach the star!' : (hasKeys && numEnemies && numTraps && timeLimit) ? 'Keys, enemies, traps & timer! Reach the star!' : hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
         this.add.text(width / 2, 30, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
@@ -2055,6 +2056,93 @@ class GameScene extends Phaser.Scene {
         };
         _updateTeleporterVis = updateTeleporterVisibility;
         updateTeleporterVisibility();
+
+        // Shifting walls - some walls open and close on a 10-second timer
+        const shiftingWalls = [];
+        if (shifting) {
+            // Find wall cells that border at least two path cells (so opening them creates a shortcut)
+            const shiftCandidates = [];
+            for (let r = 1; r < mazeH - 1; r++) {
+                for (let c = 1; c < mazeW - 1; c++) {
+                    if (maze[r][c] !== 1) continue;
+                    // Count adjacent path cells
+                    let adjPaths = 0;
+                    for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+                        const nr = r + dr;
+                        const nc = c + dc;
+                        if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0) {
+                            adjPaths++;
+                        }
+                    }
+                    // Walls bordering exactly 2 path cells make good shifting walls (corridors)
+                    if (adjPaths === 2) {
+                        shiftCandidates.push({ r, c });
+                    }
+                }
+            }
+
+            // Shuffle and pick a subset of shifting walls
+            for (let i = shiftCandidates.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shiftCandidates[i], shiftCandidates[j]] = [shiftCandidates[j], shiftCandidates[i]];
+            }
+            const numShifting = Math.min(Math.floor(shiftCandidates.length * 0.08), 30);
+
+            // Split into two groups: group A starts open, group B starts closed
+            for (let i = 0; i < numShifting; i++) {
+                const cell = shiftCandidates[i];
+                const x = offsetX + cell.c * cellSize + cellSize / 2;
+                const y = offsetY + cell.r * cellSize + cellSize / 2;
+                const startsOpen = i % 2 === 0;
+
+                // Create the wall sprite
+                const wallSprite = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, startsOpen ? 0x4a4a6a : 0x2a2a4a);
+                if (fogOfWar) wallSprite.setDepth(8);
+
+                // Add a pulsing indicator to mark shifting walls
+                const indicator = this.add.rectangle(x, y, cellSize - 6, cellSize - 6, 0x00000000);
+                indicator.setStrokeStyle(1, 0xff8800, 0.6);
+                if (fogOfWar) indicator.setDepth(9);
+
+                if (startsOpen) {
+                    maze[cell.r][cell.c] = 0; // Open the wall
+                }
+
+                shiftingWalls.push({
+                    r: cell.r,
+                    c: cell.c,
+                    sprite: wallSprite,
+                    indicator,
+                    isOpen: startsOpen,
+                });
+            }
+
+            // Timer to toggle shifting walls every 10 seconds
+            if (shiftingWalls.length > 0) {
+                this.time.addEvent({
+                    delay: 10000,
+                    loop: true,
+                    callback: () => {
+                        for (const sw of shiftingWalls) {
+                            sw.isOpen = !sw.isOpen;
+                            if (sw.isOpen) {
+                                maze[sw.r][sw.c] = 0;
+                                sw.sprite.setFillStyle(0x4a4a6a);
+                            } else {
+                                // Don't close wall if player is standing on it
+                                if (playerRow === sw.r && playerCol === sw.c) {
+                                    sw.isOpen = true;
+                                    continue;
+                                }
+                                maze[sw.r][sw.c] = 1;
+                                sw.sprite.setFillStyle(0x2a2a4a);
+                            }
+                        }
+                        updateFog();
+                    },
+                });
+            }
+        }
 
         // Get a random path cell for trap teleport destination
         const getRandomPathCell = () => {
