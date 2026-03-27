@@ -43,6 +43,7 @@ const LevelRegistry = {
     36: { type: 'maze', config: { width: 19, height: 19, cellSize: 28, fogOfWar: true, viewRadius: 3 } },
     37: { type: 'sliding-puzzle', config: { size: 4, useImage: true } },
     38: { type: 'word-scramble', config: { wordLength: 7, showHint: false, multiWord: true, wordCount: 2 } },
+    39: { type: 'math', config: { problems: 4, mode: 'fill-operators', timeLimit: 60 } },
 };
 
 // ============================================================
@@ -1752,6 +1753,11 @@ class GameScene extends Phaser.Scene {
 
     createMathPuzzle(config) {
         const { width, height } = this.scale;
+
+        if (config.mode === 'fill-operators') {
+            return this.createFillOperatorsPuzzle(config);
+        }
+
         const { problems, operations, maxNum, timeLimit } = config;
 
         // Instructions
@@ -1905,6 +1911,219 @@ class GameScene extends Phaser.Scene {
                         }
                     } else {
                         // Wrong - red flash, try again
+                        bg.setFillStyle(0xff4444);
+                        bg.disableInteractive();
+
+                        if (feedbackText) feedbackText.destroy();
+                        feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                            fontSize: '24px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#ff4444',
+                        }).setOrigin(0.5);
+                    }
+                });
+
+                choiceButtons.push({ bg, text: txt });
+            });
+        };
+
+        showProblem();
+    }
+
+    createFillOperatorsPuzzle(config) {
+        const { width, height } = this.scale;
+        const { problems, timeLimit } = config;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Pick the correct operator!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2 + 200, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.mathCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.mathCleanup = () => {
+            timerEvent.remove(false);
+        };
+
+        let currentProblem = 0;
+
+        // Progress text
+        const progressText = this.add.text(width / 2 - 200, height - 80, `Problem 1/${problems}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Containers for dynamic elements
+        let problemText = null;
+        let choiceButtons = [];
+        let feedbackText = null;
+
+        const generateProblem = (difficulty) => {
+            // Difficulty 0-3: progressively harder
+            const operators = [
+                { symbol: '+', fn: (a, b) => a + b },
+                { symbol: '-', fn: (a, b) => a - b },
+                { symbol: '×', fn: (a, b) => a * b },
+                { symbol: '÷', fn: (a, b) => a / b },
+            ];
+
+            const op = operators[Phaser.Math.Between(0, 3)];
+            let a, b;
+
+            if (difficulty === 0) {
+                // Easy: small numbers, result is obvious
+                if (op.symbol === '÷') {
+                    b = Phaser.Math.Between(2, 5);
+                    a = b * Phaser.Math.Between(1, 5);
+                } else if (op.symbol === '×') {
+                    a = Phaser.Math.Between(2, 5);
+                    b = Phaser.Math.Between(2, 5);
+                } else if (op.symbol === '-') {
+                    a = Phaser.Math.Between(3, 10);
+                    b = Phaser.Math.Between(1, a - 1);
+                } else {
+                    a = Phaser.Math.Between(1, 8);
+                    b = Phaser.Math.Between(1, 8);
+                }
+            } else if (difficulty === 1) {
+                if (op.symbol === '÷') {
+                    b = Phaser.Math.Between(2, 8);
+                    a = b * Phaser.Math.Between(2, 8);
+                } else if (op.symbol === '×') {
+                    a = Phaser.Math.Between(3, 9);
+                    b = Phaser.Math.Between(3, 9);
+                } else if (op.symbol === '-') {
+                    a = Phaser.Math.Between(10, 30);
+                    b = Phaser.Math.Between(3, a - 1);
+                } else {
+                    a = Phaser.Math.Between(5, 20);
+                    b = Phaser.Math.Between(5, 20);
+                }
+            } else if (difficulty === 2) {
+                if (op.symbol === '÷') {
+                    b = Phaser.Math.Between(3, 12);
+                    a = b * Phaser.Math.Between(3, 12);
+                } else if (op.symbol === '×') {
+                    a = Phaser.Math.Between(4, 12);
+                    b = Phaser.Math.Between(4, 12);
+                } else if (op.symbol === '-') {
+                    a = Phaser.Math.Between(20, 60);
+                    b = Phaser.Math.Between(5, a - 1);
+                } else {
+                    a = Phaser.Math.Between(15, 50);
+                    b = Phaser.Math.Between(15, 50);
+                }
+            } else {
+                // Hardest: larger numbers, tricky operators
+                if (op.symbol === '÷') {
+                    b = Phaser.Math.Between(4, 15);
+                    a = b * Phaser.Math.Between(4, 15);
+                } else if (op.symbol === '×') {
+                    a = Phaser.Math.Between(6, 15);
+                    b = Phaser.Math.Between(6, 15);
+                } else if (op.symbol === '-') {
+                    a = Phaser.Math.Between(30, 99);
+                    b = Phaser.Math.Between(10, a - 1);
+                } else {
+                    a = Phaser.Math.Between(25, 75);
+                    b = Phaser.Math.Between(25, 75);
+                }
+            }
+
+            const result = op.fn(a, b);
+            return { a, b, result, correctSymbol: op.symbol };
+        };
+
+        const showProblem = () => {
+            // Clean up previous
+            if (problemText) problemText.destroy();
+            choiceButtons.forEach(b => { b.bg.destroy(); b.text.destroy(); });
+            choiceButtons = [];
+            if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
+
+            progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+            const { a, b, result, correctSymbol } = generateProblem(currentProblem);
+
+            // Display equation with blank operator
+            problemText = this.add.text(width / 2, height / 2 - 80, `${a}  _  ${b}  =  ${result}`, {
+                fontSize: '48px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            // Create 4 operator buttons
+            const operatorChoices = ['+', '-', '×', '÷'];
+            const btnWidth = 100;
+            const btnSpacing = 130;
+            const startX = width / 2 - (btnSpacing * 1.5);
+            const btnY = height / 2 + 40;
+
+            operatorChoices.forEach((op, i) => {
+                const bx = startX + i * btnSpacing;
+                const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true });
+                const txt = this.add.text(bx, btnY, op, {
+                    fontSize: '32px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                bg.on('pointerdown', () => {
+                    if (op === correctSymbol) {
+                        // Correct
+                        bg.setFillStyle(0x44dd44);
+                        choiceButtons.forEach(b => b.bg.disableInteractive());
+
+                        if (feedbackText) feedbackText.destroy();
+                        feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                            fontSize: '24px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#44dd44',
+                        }).setOrigin(0.5);
+
+                        currentProblem++;
+                        if (currentProblem >= problems) {
+                            timerEvent.remove(false);
+                            this.mathCleanup = null;
+                            this.time.delayedCall(800, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
+                        } else {
+                            this.time.delayedCall(800, () => {
+                                showProblem();
+                            });
+                        }
+                    } else {
+                        // Wrong
                         bg.setFillStyle(0xff4444);
                         bg.disableInteractive();
 
