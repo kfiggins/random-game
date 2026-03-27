@@ -16930,6 +16930,10 @@ const config = {
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
+        max: {
+            width: 900,
+            height: 700,
+        },
     },
 };
 
