@@ -77,6 +77,7 @@ const LevelRegistry = {
     70: { type: 'multi-puzzle', config: { stages: 5, timeLimit: 180 } },
     71: { type: 'simon-says', config: { sequenceLength: 15, colors: 8, playbackSpeed: 300, replayAllowed: false, decoyFlash: true } },
     72: { type: 'sliding-puzzle', config: { size: 5, useImage: true, timeLimit: 180 } },
+    73: { type: 'memory-cards', config: { rows: 6, cols: 8, timeLimit: 30, reshuffleAfter: 1, flipBackSpeed: 250, blackout: true, fakeCards: 4 } },
 };
 
 // ============================================================
