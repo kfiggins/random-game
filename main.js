@@ -6,6 +6,7 @@
 // ============================================================
 const LevelRegistry = {
     1: { type: 'color-match', config: { pairs: 3, colors: 4, timeLimit: 30 } },
+    2: { type: 'memory-cards', config: { rows: 2, cols: 4, timeLimit: 0 } },
 };
 
 // ============================================================
@@ -177,6 +178,8 @@ class GameScene extends Phaser.Scene {
 
         if (levelData && levelData.type === 'color-match') {
             this.createColorMatchPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'memory-cards') {
+            this.createMemoryCardsPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -361,6 +364,153 @@ class GameScene extends Phaser.Scene {
         this.colorMatchCleanup = () => {
             timerEvent.remove(false);
         };
+    }
+
+    createMemoryCardsPuzzle(config) {
+        const { width, height } = this.scale;
+        const { rows, cols } = config;
+        const totalCards = rows * cols;
+        const numPairs = totalCards / 2;
+
+        const cardColors = [
+            { name: 'Red', hex: 0xff4444 },
+            { name: 'Blue', hex: 0x4488ff },
+            { name: 'Green', hex: 0x44dd44 },
+            { name: 'Purple', hex: 0xaa44ff },
+        ];
+
+        // Create pairs and shuffle
+        const cardData = [];
+        for (let i = 0; i < numPairs; i++) {
+            cardData.push(cardColors[i], cardColors[i]);
+        }
+        Phaser.Utils.Array.Shuffle(cardData);
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Find all matching pairs!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Attempts counter
+        let attempts = 0;
+        const attemptsText = this.add.text(width / 2, height - 80, 'Attempts: 0', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Card dimensions and layout
+        const cardW = 100;
+        const cardH = 120;
+        const padding = 16;
+        const gridW = cols * (cardW + padding) - padding;
+        const gridH = rows * (cardH + padding) - padding;
+        const startX = (width - gridW) / 2 + cardW / 2;
+        const startY = (height - gridH) / 2 + 10;
+
+        let firstCard = null;
+        let secondCard = null;
+        let lockBoard = false;
+        let matchesFound = 0;
+
+        const cards = [];
+
+        for (let i = 0; i < totalCards; i++) {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const x = startX + col * (cardW + padding);
+            const y = startY + row * (cardH + padding);
+            const color = cardData[i];
+
+            // Face-down card back
+            const back = this.add.rectangle(x, y, cardW, cardH, 0x3a3a6a)
+                .setInteractive({ useHandCursor: true });
+            const questionMark = this.add.text(x, y, '?', {
+                fontSize: '36px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#888888',
+            }).setOrigin(0.5);
+
+            // Face-up card (hidden initially)
+            const face = this.add.rectangle(x, y, cardW, cardH, color.hex)
+                .setVisible(false);
+            const colorLabel = this.add.text(x, y, color.name, {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5).setVisible(false);
+
+            const card = { back, questionMark, face, colorLabel, colorName: color.name, flipped: false, matched: false, x, y };
+            cards.push(card);
+
+            back.on('pointerover', () => {
+                if (!card.flipped && !card.matched) back.setFillStyle(0x5a5a9a);
+            });
+            back.on('pointerout', () => {
+                if (!card.flipped && !card.matched) back.setFillStyle(0x3a3a6a);
+            });
+
+            back.on('pointerdown', () => {
+                if (lockBoard || card.flipped || card.matched) return;
+
+                // Flip card face-up
+                card.flipped = true;
+                back.setVisible(false);
+                questionMark.setVisible(false);
+                face.setVisible(true);
+                colorLabel.setVisible(true);
+
+                if (!firstCard) {
+                    firstCard = card;
+                } else {
+                    secondCard = card;
+                    attempts++;
+                    attemptsText.setText(`Attempts: ${attempts}`);
+                    lockBoard = true;
+
+                    if (firstCard.colorName === secondCard.colorName) {
+                        // Match found
+                        firstCard.matched = true;
+                        secondCard.matched = true;
+                        firstCard.face.setAlpha(0.6);
+                        secondCard.face.setAlpha(0.6);
+                        firstCard.colorLabel.setAlpha(0.6);
+                        secondCard.colorLabel.setAlpha(0.6);
+                        firstCard = null;
+                        secondCard = null;
+                        lockBoard = false;
+                        matchesFound++;
+
+                        if (matchesFound >= numPairs) {
+                            this.time.delayedCall(500, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
+                        }
+                    } else {
+                        // No match - flip back after 1 second
+                        const fc = firstCard;
+                        const sc = secondCard;
+                        this.time.delayedCall(1000, () => {
+                            fc.flipped = false;
+                            fc.back.setVisible(true);
+                            fc.questionMark.setVisible(true);
+                            fc.face.setVisible(false);
+                            fc.colorLabel.setVisible(false);
+                            sc.flipped = false;
+                            sc.back.setVisible(true);
+                            sc.questionMark.setVisible(true);
+                            sc.face.setVisible(false);
+                            sc.colorLabel.setVisible(false);
+                            firstCard = null;
+                            secondCard = null;
+                            lockBoard = false;
+                        });
+                    }
+                }
+            });
+        }
     }
 
     handleTimeUp() {
