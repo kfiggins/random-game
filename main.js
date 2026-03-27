@@ -15,6 +15,7 @@ const LevelRegistry = {
     8: { type: 'math', config: { problems: 3, operations: ['add'], maxNum: 10, timeLimit: 30 } },
     9: { type: 'word-scramble', config: { wordLength: 4, showHint: true } },
     10: { type: 'spot-difference', config: { differences: 2, gridSize: 5 } },
+    11: { type: 'color-match', config: { pairs: 5, colors: 6, timeLimit: 30 } },
 };
 
 // ============================================================
@@ -247,15 +248,21 @@ class GameScene extends Phaser.Scene {
             { name: 'Blue', hex: 0x4488ff },
             { name: 'Green', hex: 0x44dd44 },
             { name: 'Yellow', hex: 0xffdd44 },
+            { name: 'Purple', hex: 0xaa44ff },
+            { name: 'Orange', hex: 0xff8844 },
+            { name: 'Cyan', hex: 0x44dddd },
+            { name: 'Pink', hex: 0xff44aa },
         ];
 
         // Pick random colors for this puzzle
-        const shuffled = Phaser.Utils.Array.Shuffle([...allColors]).slice(0, pairs);
+        const available = Phaser.Utils.Array.Shuffle([...allColors]).slice(0, numColors);
+        const shuffled = Phaser.Utils.Array.Shuffle([...available]).slice(0, pairs);
         const leftOrder = Phaser.Utils.Array.Shuffle([...shuffled]);
         const rightOrder = Phaser.Utils.Array.Shuffle([...shuffled]);
 
-        const circleRadius = 36;
-        const spacing = 90;
+        const circleRadius = pairs <= 4 ? 36 : 28;
+        const availableHeight = height - 240;
+        const spacing = Math.min(90, availableHeight / pairs);
         const startY = 120;
         const leftX = width / 2 - 140;
         const rightX = width / 2 + 140;
