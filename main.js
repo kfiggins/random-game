@@ -14,6 +14,7 @@ const LevelRegistry = {
     7: { type: 'reaction-time', config: { targets: 5, targetSize: 50, stayTime: 2500, timeLimit: 15 } },
     8: { type: 'math', config: { problems: 3, operations: ['add'], maxNum: 10, timeLimit: 30 } },
     9: { type: 'word-scramble', config: { wordLength: 4, showHint: true } },
+    10: { type: 'spot-difference', config: { differences: 2, gridSize: 5 } },
 };
 
 // ============================================================
@@ -201,6 +202,8 @@ class GameScene extends Phaser.Scene {
             this.createMathPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'word-scramble') {
             this.createWordScramblePuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'spot-difference') {
+            this.createSpotDifferencePuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -1569,6 +1572,130 @@ class GameScene extends Phaser.Scene {
                 }
             }
         });
+    }
+
+    createSpotDifferencePuzzle(config) {
+        const { width, height } = this.scale;
+        const { differences, gridSize } = config;
+
+        const cellSize = 44;
+        const cellGap = 4;
+        const gridPixels = gridSize * (cellSize + cellGap) - cellGap;
+        const gap = 60;
+        const leftGridX = width / 2 - gap / 2 - gridPixels;
+        const rightGridX = width / 2 + gap / 2;
+        const gridY = 130;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Spot the differences! Click them in the right grid.', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Grid labels
+        this.add.text(leftGridX + gridPixels / 2, gridY - 20, 'Original', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#88aacc',
+        }).setOrigin(0.5);
+
+        this.add.text(rightGridX + gridPixels / 2, gridY - 20, 'Modified', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#88aacc',
+        }).setOrigin(0.5);
+
+        // Found counter
+        let found = 0;
+        const foundText = this.add.text(width / 2, 100, `Found: 0/${differences}`, {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Generate base grid colors
+        const palette = [0xff4444, 0x4488ff, 0x44dd44, 0xffdd44, 0xff88cc, 0x88ddff, 0xffaa44, 0xaa66ff];
+        const baseColors = [];
+        for (let r = 0; r < gridSize; r++) {
+            baseColors[r] = [];
+            for (let c = 0; c < gridSize; c++) {
+                baseColors[r][c] = Phaser.Utils.Array.GetRandom(palette);
+            }
+        }
+
+        // Pick difference positions
+        const allPositions = [];
+        for (let r = 0; r < gridSize; r++) {
+            for (let c = 0; c < gridSize; c++) {
+                allPositions.push({ r, c });
+            }
+        }
+        const diffPositions = Phaser.Utils.Array.Shuffle(allPositions).slice(0, differences);
+        const diffSet = new Set(diffPositions.map(p => `${p.r},${p.c}`));
+
+        // Build modified colors
+        const modifiedColors = baseColors.map(row => [...row]);
+        for (const pos of diffPositions) {
+            let newColor;
+            do {
+                newColor = Phaser.Utils.Array.GetRandom(palette);
+            } while (newColor === baseColors[pos.r][pos.c]);
+            modifiedColors[pos.r][pos.c] = newColor;
+        }
+
+        // Draw left (original) grid
+        for (let r = 0; r < gridSize; r++) {
+            for (let c = 0; c < gridSize; c++) {
+                const x = leftGridX + c * (cellSize + cellGap) + cellSize / 2;
+                const y = gridY + r * (cellSize + cellGap) + cellSize / 2;
+                this.add.rectangle(x, y, cellSize, cellSize, baseColors[r][c]);
+            }
+        }
+
+        // Draw right (modified) grid with interactive cells
+        const foundSet = new Set();
+        for (let r = 0; r < gridSize; r++) {
+            for (let c = 0; c < gridSize; c++) {
+                const x = rightGridX + c * (cellSize + cellGap) + cellSize / 2;
+                const y = gridY + r * (cellSize + cellGap) + cellSize / 2;
+                const cell = this.add.rectangle(x, y, cellSize, cellSize, modifiedColors[r][c])
+                    .setInteractive({ useHandCursor: true });
+
+                const key = `${r},${c}`;
+
+                cell.on('pointerdown', () => {
+                    if (diffSet.has(key) && !foundSet.has(key)) {
+                        // Correct - green ring
+                        foundSet.add(key);
+                        cell.setStrokeStyle(3, 0x44dd44);
+                        cell.disableInteractive();
+                        found++;
+                        foundText.setText(`Found: ${found}/${differences}`);
+
+                        if (found >= differences) {
+                            foundText.setColor('#44dd44');
+                            this.add.text(width / 2, gridY + gridPixels + 30, 'All differences found!', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#44dd44',
+                            }).setOrigin(0.5);
+
+                            this.time.delayedCall(1000, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
+                        }
+                    } else if (!foundSet.has(key)) {
+                        // Wrong - brief red flash
+                        const originalColor = modifiedColors[r][c];
+                        cell.setStrokeStyle(3, 0xff4444);
+                        this.time.delayedCall(400, () => {
+                            cell.setStrokeStyle(0);
+                        });
+                    }
+                });
+            }
+        }
     }
 
     createButton(x, y, label, callback, color = 0x4a4a8a, hoverColor = 0x6a6aaa) {
