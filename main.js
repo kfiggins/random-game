@@ -55,6 +55,7 @@ const LevelRegistry = {
     48: { type: 'math', config: { problems: 3, mode: 'algebra', timeLimit: 90 } },
     49: { type: 'light-toggle', config: { size: 6, randomize: true, lockedCells: 4 } },
     50: { type: 'multi-puzzle', config: { stages: 3, timeLimit: 120 } },
+    51: { type: 'memory-cards', config: { rows: 6, cols: 6, timeLimit: 40, reshuffleAfter: 2, flipBackSpeed: 400, blackout: true } },
 };
 
 // ============================================================
@@ -452,7 +453,7 @@ class GameScene extends Phaser.Scene {
 
     createMemoryCardsPuzzle(config) {
         const { width, height } = this.scale;
-        const { rows, cols, timeLimit, reshuffleAfter, flipBackSpeed } = config;
+        const { rows, cols, timeLimit, reshuffleAfter, flipBackSpeed, blackout } = config;
         const totalCards = rows * cols;
         const numPairs = totalCards / 2;
 
@@ -602,10 +603,18 @@ class GameScene extends Phaser.Scene {
                         consecutiveMisses = 0;
                         firstCard.matched = true;
                         secondCard.matched = true;
-                        firstCard.face.setAlpha(0.6);
-                        secondCard.face.setAlpha(0.6);
-                        firstCard.colorLabel.setAlpha(0.6);
-                        secondCard.colorLabel.setAlpha(0.6);
+                        if (blackout) {
+                            // Blackout mode: matched pairs disappear entirely
+                            firstCard.face.setVisible(false);
+                            firstCard.colorLabel.setVisible(false);
+                            secondCard.face.setVisible(false);
+                            secondCard.colorLabel.setVisible(false);
+                        } else {
+                            firstCard.face.setAlpha(0.6);
+                            secondCard.face.setAlpha(0.6);
+                            firstCard.colorLabel.setAlpha(0.6);
+                            secondCard.colorLabel.setAlpha(0.6);
+                        }
                         firstCard = null;
                         secondCard = null;
                         lockBoard = false;
