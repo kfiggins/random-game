@@ -35,6 +35,7 @@ const LevelRegistry = {
     28: { type: 'math', config: { problems: 6, operations: ['multiply', 'divide'], maxNum: 12, timeLimit: 40 } },
     29: { type: 'tower-of-hanoi', config: { discs: 4 } },
     30: { type: 'jigsaw', config: { rows: 3, cols: 3 } },
+    31: { type: 'memory-cards', config: { rows: 4, cols: 5, timeLimit: 60, reshuffleAfter: 3 } },
 };
 
 // ============================================================
@@ -430,7 +431,7 @@ class GameScene extends Phaser.Scene {
 
     createMemoryCardsPuzzle(config) {
         const { width, height } = this.scale;
-        const { rows, cols, timeLimit } = config;
+        const { rows, cols, timeLimit, reshuffleAfter } = config;
         const totalCards = rows * cols;
         const numPairs = totalCards / 2;
 
@@ -443,6 +444,8 @@ class GameScene extends Phaser.Scene {
             { name: 'Cyan', hex: 0x44dddd },
             { name: 'Yellow', hex: 0xffdd44 },
             { name: 'Pink', hex: 0xff44aa },
+            { name: 'Lime', hex: 0x88ff44 },
+            { name: 'Teal', hex: 0x22aa88 },
         ];
 
         // Create pairs and shuffle
@@ -507,6 +510,7 @@ class GameScene extends Phaser.Scene {
         let secondCard = null;
         let lockBoard = false;
         let matchesFound = 0;
+        let consecutiveMisses = 0;
 
         const cards = [];
 
@@ -565,6 +569,7 @@ class GameScene extends Phaser.Scene {
 
                     if (firstCard.colorName === secondCard.colorName) {
                         // Match found
+                        consecutiveMisses = 0;
                         firstCard.matched = true;
                         secondCard.matched = true;
                         firstCard.face.setAlpha(0.6);
@@ -584,8 +589,10 @@ class GameScene extends Phaser.Scene {
                         }
                     } else {
                         // No match - flip back after 1 second
+                        consecutiveMisses++;
                         const fc = firstCard;
                         const sc = secondCard;
+                        const shouldReshuffle = reshuffleAfter && consecutiveMisses >= reshuffleAfter;
                         this.time.delayedCall(1000, () => {
                             fc.flipped = false;
                             fc.back.setVisible(true);
@@ -599,7 +606,33 @@ class GameScene extends Phaser.Scene {
                             sc.colorLabel.setVisible(false);
                             firstCard = null;
                             secondCard = null;
-                            lockBoard = false;
+
+                            if (shouldReshuffle) {
+                                consecutiveMisses = 0;
+                                // Collect unmatched cards and reshuffle their color assignments
+                                const unmatched = cards.filter(c => !c.matched);
+                                const unmatchedColors = unmatched.map(c => ({ name: c.colorName, hex: c.face.fillColor }));
+                                Phaser.Utils.Array.Shuffle(unmatchedColors);
+                                unmatched.forEach((c, idx) => {
+                                    c.colorName = unmatchedColors[idx].name;
+                                    c.face.setFillStyle(unmatchedColors[idx].hex);
+                                    c.colorLabel.setText(unmatchedColors[idx].name);
+                                });
+
+                                // Flash a warning
+                                const reshuffleWarning = this.add.text(width / 2, height / 2, 'Reshuffled!', {
+                                    fontSize: '32px',
+                                    fontFamily: 'Arial, sans-serif',
+                                    color: '#ff4444',
+                                    fontStyle: 'bold',
+                                }).setOrigin(0.5).setDepth(100);
+                                this.time.delayedCall(800, () => {
+                                    reshuffleWarning.destroy();
+                                    lockBoard = false;
+                                });
+                            } else {
+                                lockBoard = false;
+                            }
                         });
                     }
                 }
