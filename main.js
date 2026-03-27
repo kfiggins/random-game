@@ -30,6 +30,7 @@ const LevelRegistry = {
     23: { type: 'simon-says', config: { sequenceLength: 7, colors: 4, playbackSpeed: 500 } },
     24: { type: 'sorting', config: { count: 8, maxValue: 50, maxSwaps: 15 } },
     25: { type: 'sliding-puzzle', config: { size: 4 } },
+    26: { type: 'pattern-complete', config: { patternLength: 9, numChoices: 4, is2D: true } },
 };
 
 // ============================================================
@@ -980,7 +981,7 @@ class GameScene extends Phaser.Scene {
 
     createPatternCompletePuzzle(config) {
         const { width, height } = this.scale;
-        const { patternLength, numChoices } = config;
+        const { patternLength, numChoices, is2D } = config;
 
         const shapeDefs = [
             { name: 'Circle', color: 0xff4444, colorName: 'Red' },
@@ -988,6 +989,11 @@ class GameScene extends Phaser.Scene {
             { name: 'Triangle', color: 0x44dd44, colorName: 'Green' },
             { name: 'Diamond', color: 0xffdd44, colorName: 'Yellow' },
         ];
+
+        if (is2D) {
+            this.createPatternComplete2D(config, shapeDefs);
+            return;
+        }
 
         // Instructions
         this.add.text(width / 2, 70, 'Complete the pattern! Pick the missing shape.', {
@@ -1111,6 +1117,153 @@ class GameScene extends Phaser.Scene {
                     });
                 } else {
                     // Wrong - flash red
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Try again.');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x2a2a4a);
+                    });
+                }
+            });
+        });
+    }
+
+    createPatternComplete2D(config, shapeDefs) {
+        const { width, height } = this.scale;
+        const { numChoices } = config;
+        const gridSize = 3;
+
+        // Instructions
+        this.add.text(width / 2, 50, 'Complete the 2D pattern! Pick the missing shape.', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 75, 'The pattern repeats in both rows and columns.', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#777777',
+        }).setOrigin(0.5);
+
+        const drawShape = (x, y, shapeDef, size) => {
+            if (shapeDef.name === 'Circle') {
+                return this.add.circle(x, y, size / 2, shapeDef.color);
+            } else if (shapeDef.name === 'Square') {
+                return this.add.rectangle(x, y, size, size, shapeDef.color);
+            } else if (shapeDef.name === 'Triangle') {
+                return this.add.triangle(x, y, 0, size, size / 2, 0, size, size, shapeDef.color);
+            } else if (shapeDef.name === 'Diamond') {
+                return this.add.polygon(x, y, [
+                    0, -size / 2, size / 2, 0, 0, size / 2, -size / 2, 0,
+                ], shapeDef.color);
+            }
+        };
+
+        // Build a 3x3 grid where each row and column uses a repeating pattern
+        // Assign a unique shape to each row and column intersection
+        const shuffled = Phaser.Utils.Array.Shuffle([...shapeDefs]);
+        const rowShapes = shuffled.slice(0, gridSize);
+        const colShapes = Phaser.Utils.Array.Shuffle([...shapeDefs]).slice(0, gridSize);
+
+        // Grid[r][c] = shape determined by (r + c) mod 3 from a shuffled set
+        const patternShapes = Phaser.Utils.Array.Shuffle([...shapeDefs]).slice(0, gridSize);
+        const grid = [];
+        for (let r = 0; r < gridSize; r++) {
+            grid[r] = [];
+            for (let c = 0; c < gridSize; c++) {
+                grid[r][c] = patternShapes[(r + c) % gridSize];
+            }
+        }
+
+        // The missing cell is bottom-right
+        const missingR = gridSize - 1;
+        const missingC = gridSize - 1;
+        const correctAnswer = grid[missingR][missingC];
+
+        // Draw the grid
+        const shapeSize = 60;
+        const padding = 20;
+        const totalGridW = gridSize * shapeSize + (gridSize - 1) * padding;
+        const totalGridH = totalGridW;
+        const gridStartX = (width - totalGridW) / 2 + shapeSize / 2;
+        const gridStartY = (height - totalGridH) / 2 - 40 + shapeSize / 2;
+
+        for (let r = 0; r < gridSize; r++) {
+            for (let c = 0; c < gridSize; c++) {
+                const x = gridStartX + c * (shapeSize + padding);
+                const y = gridStartY + r * (shapeSize + padding);
+
+                if (r === missingR && c === missingC) {
+                    // Draw placeholder
+                    this.add.rectangle(x, y, shapeSize, shapeSize, 0x3a3a6a);
+                    this.add.text(x, y, '?', {
+                        fontSize: '36px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#888888',
+                    }).setOrigin(0.5);
+                } else {
+                    drawShape(x, y, grid[r][c], shapeSize);
+                }
+            }
+        }
+
+        // Draw choice buttons below the grid
+        const choiceY = gridStartY + gridSize * (shapeSize + padding) + 30;
+        const choiceSize = 60;
+        const choicePadding = 30;
+        const choiceTotalW = numChoices * choiceSize + (numChoices - 1) * choicePadding;
+        const choiceStartX = (width - choiceTotalW) / 2 + choiceSize / 2;
+
+        // Build choices: correct answer + wrong ones
+        const otherShapes = shapeDefs.filter(s => s.name !== correctAnswer.name);
+        Phaser.Utils.Array.Shuffle(otherShapes);
+        const choices = [correctAnswer, ...otherShapes.slice(0, numChoices - 1)];
+        Phaser.Utils.Array.Shuffle(choices);
+
+        const feedbackText = this.add.text(width / 2, choiceY + 70, '', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        let solved = false;
+
+        // Store references for revealing the answer
+        const missingX = gridStartX + missingC * (shapeSize + padding);
+        const missingY = gridStartY + missingR * (shapeSize + padding);
+
+        choices.forEach((shapeDef, i) => {
+            const cx = choiceStartX + i * (choiceSize + choicePadding);
+
+            const bg = this.add.rectangle(cx, choiceY, choiceSize + 10, choiceSize + 10, 0x2a2a4a)
+                .setInteractive({ useHandCursor: true });
+
+            drawShape(cx, choiceY, shapeDef, choiceSize - 10);
+
+            this.add.text(cx, choiceY + choiceSize / 2 + 12, shapeDef.colorName, {
+                fontSize: '12px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => {
+                if (!solved) bg.setFillStyle(0x4a4a6a);
+            });
+            bg.on('pointerout', () => {
+                if (!solved) bg.setFillStyle(0x2a2a4a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (solved) return;
+
+                if (shapeDef.name === correctAnswer.name) {
+                    solved = true;
+                    drawShape(missingX, missingY, correctAnswer, shapeSize);
+                    feedbackText.setText('Correct!').setColor('#44dd44');
+                    this.time.delayedCall(500, () => {
+                        this.scene.start('LevelCompleteScene', { level: this.level });
+                    });
+                } else {
                     bg.setFillStyle(0xaa0000);
                     feedbackText.setText('Wrong! Try again.');
                     this.time.delayedCall(400, () => {
