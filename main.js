@@ -18,6 +18,7 @@ const LevelRegistry = {
     11: { type: 'color-match', config: { pairs: 5, colors: 6, timeLimit: 30 } },
     12: { type: 'memory-cards', config: { rows: 3, cols: 4, timeLimit: 0 } },
     13: { type: 'simon-says', config: { sequenceLength: 5, colors: 4, playbackSpeed: 600 } },
+    14: { type: 'sliding-puzzle', config: { size: 3 } },
 };
 
 // ============================================================
@@ -207,6 +208,8 @@ class GameScene extends Phaser.Scene {
             this.createWordScramblePuzzle(levelData.config);
         } else if (levelData && levelData.type === 'spot-difference') {
             this.createSpotDifferencePuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'sliding-puzzle') {
+            this.createSlidingPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -1707,6 +1710,133 @@ class GameScene extends Phaser.Scene {
                 });
             }
         }
+    }
+
+    createSlidingPuzzle(config) {
+        const { width, height } = this.scale;
+        const size = config.size;
+        const tileSize = 90;
+        const gap = 4;
+        const totalSize = size * tileSize + (size - 1) * gap;
+        const startX = (width - totalSize) / 2 + tileSize / 2;
+        const startY = (height - totalSize) / 2 + tileSize / 2 - 10;
+
+        // Initialize solved board: 1..8, 0 = empty
+        const board = [];
+        for (let r = 0; r < size; r++) {
+            board[r] = [];
+            for (let c = 0; c < size; c++) {
+                const val = r * size + c + 1;
+                board[r][c] = val === size * size ? 0 : val;
+            }
+        }
+
+        // Track empty position
+        let emptyR = size - 1;
+        let emptyC = size - 1;
+
+        // Shuffle by making random valid moves from solved state (ensures solvability)
+        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        for (let i = 0; i < 200; i++) {
+            const validMoves = [];
+            for (const [dr, dc] of dirs) {
+                const nr = emptyR + dr;
+                const nc = emptyC + dc;
+                if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
+                    validMoves.push([nr, nc]);
+                }
+            }
+            const [mr, mc] = validMoves[Math.floor(Math.random() * validMoves.length)];
+            board[emptyR][emptyC] = board[mr][mc];
+            board[mr][mc] = 0;
+            emptyR = mr;
+            emptyC = mc;
+        }
+
+        let moveCount = 0;
+        const moveText = this.add.text(width / 2, 70, 'Moves: 0', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        const tiles = [];
+
+        const renderBoard = () => {
+            // Clear old tiles
+            tiles.forEach(t => { t.bg.destroy(); t.label.destroy(); });
+            tiles.length = 0;
+
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const val = board[r][c];
+                    if (val === 0) continue;
+
+                    const x = startX + c * (tileSize + gap);
+                    const y = startY + r * (tileSize + gap);
+
+                    const bg = this.add.rectangle(x, y, tileSize, tileSize, 0x4a6a9a)
+                        .setInteractive({ useHandCursor: true });
+
+                    const label = this.add.text(x, y, `${val}`, {
+                        fontSize: '36px',
+                        fontFamily: 'Arial, sans-serif',
+                        fontStyle: 'bold',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+
+                    bg.on('pointerdown', () => {
+                        // Check if adjacent to empty
+                        const dr = Math.abs(r - emptyR);
+                        const dc = Math.abs(c - emptyC);
+                        if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                            // Slide tile
+                            board[emptyR][emptyC] = board[r][c];
+                            board[r][c] = 0;
+                            emptyR = r;
+                            emptyC = c;
+                            moveCount++;
+                            moveText.setText(`Moves: ${moveCount}`);
+                            renderBoard();
+
+                            // Check win
+                            if (this.checkSlidingPuzzleSolved(board, size)) {
+                                this.time.delayedCall(300, () => {
+                                    this.scene.start('LevelCompleteScene', { level: this.level });
+                                });
+                            }
+                        }
+                    });
+
+                    bg.on('pointerover', () => {
+                        const dr = Math.abs(r - emptyR);
+                        const dc = Math.abs(c - emptyC);
+                        if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                            bg.setFillStyle(0x6a8aba);
+                        }
+                    });
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a6a9a));
+
+                    tiles.push({ bg, label });
+                }
+            }
+        };
+
+        renderBoard();
+    }
+
+    checkSlidingPuzzleSolved(board, size) {
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+                const expected = r * size + c + 1;
+                if (r === size - 1 && c === size - 1) {
+                    if (board[r][c] !== 0) return false;
+                } else {
+                    if (board[r][c] !== expected) return false;
+                }
+            }
+        }
+        return true;
     }
 
     createButton(x, y, label, callback, color = 0x4a4a8a, hoverColor = 0x6a6aaa) {
