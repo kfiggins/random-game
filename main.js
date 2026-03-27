@@ -40,6 +40,7 @@ const LevelRegistry = {
     33: { type: 'light-toggle', config: { size: 5, randomize: true } },
     34: { type: 'reaction-time', config: { targets: 12, targetSize: 35, stayTime: 1800, timeLimit: 25, hasDecoys: true, moving: true } },
     35: { type: 'sequence-logic', config: { sequenceLength: 8, numChoices: 4, interleaved: true } },
+    36: { type: 'maze', config: { width: 19, height: 19, cellSize: 28, fogOfWar: true, viewRadius: 3 } },
 };
 
 // ============================================================
@@ -915,7 +916,7 @@ class GameScene extends Phaser.Scene {
 
     createMazePuzzle(config) {
         const { width, height } = this.scale;
-        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys } = config;
+        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius } = config;
 
         // Generate maze using recursive backtracker algorithm
         // 0 = path, 1 = wall, 2+ = door (blocked until key collected)
@@ -1056,7 +1057,7 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        const instrText = hasKeys ? 'Collect keys to unlock doors! Reach the star!' : 'Use arrow keys to reach the star!';
+        const instrText = hasKeys ? 'Collect keys to unlock doors! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
         this.add.text(width / 2, 30, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
@@ -1094,6 +1095,7 @@ class GameScene extends Phaser.Scene {
         const offsetY = (height - gridH) / 2 + 10;
 
         // Draw the maze
+        const fogOverlays = [];
         for (let row = 0; row < mazeH; row++) {
             for (let col = 0; col < mazeW; col++) {
                 const x = offsetX + col * cellSize + cellSize / 2;
@@ -1129,12 +1131,44 @@ class GameScene extends Phaser.Scene {
         const exitY = offsetY + (mazeH - 1) * cellSize + cellSize / 2;
         const star = this.add.star(exitX, exitY, 5, 10, 22, 0xffdd44);
 
+        // Fog of war overlay - dark rectangles on top of everything except the player
+        if (fogOfWar) {
+            for (let row = 0; row < mazeH; row++) {
+                const rowOverlays = [];
+                for (let col = 0; col < mazeW; col++) {
+                    const x = offsetX + col * cellSize + cellSize / 2;
+                    const y = offsetY + row * cellSize + cellSize / 2;
+                    const fog = this.add.rectangle(x, y, cellSize, cellSize, 0x111111);
+                    fog.setDepth(10);
+                    rowOverlays.push(fog);
+                }
+                fogOverlays.push(rowOverlays);
+            }
+        }
+
         // Player circle at top-left (0,0)
         let playerCol = 0;
         let playerRow = 0;
         const playerX = offsetX + playerCol * cellSize + cellSize / 2;
         const playerY = offsetY + playerRow * cellSize + cellSize / 2;
         const player = this.add.circle(playerX, playerY, cellSize / 3, 0x44dd44);
+        if (fogOfWar) player.setDepth(20);
+
+        // Fog of war visibility update function
+        const updateFog = () => {
+            if (!fogOfWar) return;
+            for (let row = 0; row < mazeH; row++) {
+                for (let col = 0; col < mazeW; col++) {
+                    const dist = Math.abs(row - playerRow) + Math.abs(col - playerCol);
+                    if (dist <= viewRadius) {
+                        fogOverlays[row][col].setVisible(false);
+                    } else {
+                        fogOverlays[row][col].setVisible(true);
+                    }
+                }
+            }
+        };
+        updateFog();
 
         // Arrow key input
         const cursors = this.input.keyboard.createCursorKeys();
@@ -1163,6 +1197,9 @@ class GameScene extends Phaser.Scene {
 
             moveCount++;
             moveText.setText(`Moves: ${moveCount}`);
+
+            // Update fog of war
+            updateFog();
 
             // Check key pickup
             for (let i = 0; i < keyCells.length; i++) {
