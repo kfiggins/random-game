@@ -25,6 +25,7 @@ const LevelRegistry = {
     18: { type: 'math', config: { problems: 5, operations: ['add', 'subtract'], maxNum: 20, timeLimit: 45 } },
     19: { type: 'word-scramble', config: { wordLength: 6, showHint: false } },
     20: { type: 'light-toggle', config: { size: 3, randomize: true } },
+    21: { type: 'memory-cards', config: { rows: 4, cols: 4, timeLimit: 45 } },
 };
 
 // ============================================================
@@ -414,7 +415,7 @@ class GameScene extends Phaser.Scene {
 
     createMemoryCardsPuzzle(config) {
         const { width, height } = this.scale;
-        const { rows, cols } = config;
+        const { rows, cols, timeLimit } = config;
         const totalCards = rows * cols;
         const numPairs = totalCards / 2;
 
@@ -425,6 +426,8 @@ class GameScene extends Phaser.Scene {
             { name: 'Purple', hex: 0xaa44ff },
             { name: 'Orange', hex: 0xff8844 },
             { name: 'Cyan', hex: 0x44dddd },
+            { name: 'Yellow', hex: 0xffdd44 },
+            { name: 'Pink', hex: 0xff44aa },
         ];
 
         // Create pairs and shuffle
@@ -448,6 +451,33 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
         }).setOrigin(0.5);
+
+        // Timer (if timeLimit > 0)
+        let timerEvent = null;
+        let timerText = null;
+        if (timeLimit > 0) {
+            let timeLeft = timeLimit;
+            timerText = this.add.text(width / 2, height - 110, `Time: ${timeLeft}s`, {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            timerEvent = this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${timeLeft}s`);
+                    if (timeLeft <= 5) {
+                        timerText.setColor('#ff4444');
+                    }
+                    if (timeLeft <= 0) {
+                        this.handleTimeUp();
+                    }
+                },
+            });
+        }
 
         // Card dimensions and layout
         const cardW = 100;
@@ -532,6 +562,7 @@ class GameScene extends Phaser.Scene {
                         matchesFound++;
 
                         if (matchesFound >= numPairs) {
+                            if (timerEvent) timerEvent.remove();
                             this.time.delayedCall(500, () => {
                                 this.scene.start('LevelCompleteScene', { level: this.level });
                             });
