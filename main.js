@@ -66,6 +66,7 @@ const LevelRegistry = {
     59: { type: 'light-toggle', config: { size: 7, randomize: true, lockedCells: 8 } },
     60: { type: 'multi-puzzle', config: { stages: 4, timeLimit: 150 } },
     61: { type: 'memory-cards', config: { rows: 6, cols: 7, timeLimit: 35, reshuffleAfter: 2, flipBackSpeed: 300, blackout: true, fakeCards: 2 } },
+    62: { type: 'sorting', config: { count: 10, maxValue: 200, adjacentOnly: true, maxSwaps: 25, blind: true } },
 };
 
 // ============================================================
@@ -850,7 +851,7 @@ class GameScene extends Phaser.Scene {
 
     createSortingPuzzle(config) {
         const { width, height } = this.scale;
-        const { count, maxValue, maxSwaps, adjacentOnly } = config;
+        const { count, maxValue, maxSwaps, adjacentOnly, blind } = config;
 
         // Generate unique random numbers
         const numbers = [];
@@ -869,7 +870,9 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        const instrText = adjacentOnly
+        const instrText = blind
+            ? 'Blind sort! Use arrows to deduce order. Adjacent swaps only!'
+            : adjacentOnly
             ? 'Click two ADJACENT numbers to swap. Sort ascending!'
             : 'Click two numbers to swap. Sort ascending!';
         this.add.text(width / 2, 70, instrText, {
@@ -904,10 +907,10 @@ class GameScene extends Phaser.Scene {
             const bg = this.add.rectangle(x, cardY, cardW, cardH, 0x3a3a6a)
                 .setInteractive({ useHandCursor: true });
 
-            const label = this.add.text(x, cardY, `${numbers[index]}`, {
+            const label = this.add.text(x, cardY, blind ? '?' : `${numbers[index]}`, {
                 fontSize: '32px',
                 fontFamily: 'Arial, sans-serif',
-                color: '#ffffff',
+                color: blind ? '#888888' : '#ffffff',
             }).setOrigin(0.5);
 
             const outline = this.add.rectangle(x, cardY, cardW + 6, cardH + 6)
@@ -954,12 +957,19 @@ class GameScene extends Phaser.Scene {
                     numbers[otherIndex] = numbers[index];
                     numbers[index] = tmp;
 
-                    cards[otherIndex].label.setText(`${numbers[otherIndex]}`);
-                    label.setText(`${numbers[index]}`);
+                    if (!blind) {
+                        cards[otherIndex].label.setText(`${numbers[otherIndex]}`);
+                        label.setText(`${numbers[index]}`);
+                    }
 
                     selectedIndex = null;
                     swapCount++;
                     swapText.setText(maxSwaps ? `Swaps: ${swapCount}/${maxSwaps}` : `Swaps: ${swapCount}`);
+
+                    // Update blind mode arrows after swap
+                    if (blind && this._blindUpdateArrows) {
+                        this._blindUpdateArrows();
+                    }
 
                     // Check if sorted
                     let isSorted = true;
@@ -971,8 +981,14 @@ class GameScene extends Phaser.Scene {
                     }
 
                     if (isSorted) {
-                        // Flash all cards green
-                        cards.forEach(c => c.bg.setFillStyle(0x228822));
+                        // Flash all cards green and reveal numbers in blind mode
+                        cards.forEach((c, ci) => {
+                            c.bg.setFillStyle(0x228822);
+                            if (blind) {
+                                c.label.setText(`${numbers[ci]}`);
+                                c.label.setColor('#ffffff');
+                            }
+                        });
                         this.time.delayedCall(500, () => {
                             this.scene.start('LevelCompleteScene', { level: this.level });
                         });
@@ -1006,6 +1022,31 @@ class GameScene extends Phaser.Scene {
 
         for (let i = 0; i < count; i++) {
             cards.push(createCard(i));
+        }
+
+        // Blind mode: show comparison arrows between adjacent pairs
+        const arrows = [];
+        if (blind) {
+            const arrowY = cardY + cardH / 2 + 18;
+            const updateArrows = () => {
+                arrows.forEach(a => a.destroy());
+                arrows.length = 0;
+                for (let i = 0; i < count - 1; i++) {
+                    const x1 = startX + i * (cardW + padding);
+                    const x2 = startX + (i + 1) * (cardW + padding);
+                    const midX = (x1 + x2) / 2;
+                    const symbol = numbers[i] > numbers[i + 1] ? '>' : numbers[i] < numbers[i + 1] ? '<' : '=';
+                    const color = numbers[i] <= numbers[i + 1] ? '#44dd44' : '#ff6644';
+                    const arrow = this.add.text(midX, arrowY, symbol, {
+                        fontSize: '22px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: color,
+                    }).setOrigin(0.5);
+                    arrows.push(arrow);
+                }
+            };
+            updateArrows();
+            this._blindUpdateArrows = updateArrows;
         }
     }
 
