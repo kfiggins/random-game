@@ -58,6 +58,7 @@ const LevelRegistry = {
     51: { type: 'memory-cards', config: { rows: 6, cols: 6, timeLimit: 40, reshuffleAfter: 2, flipBackSpeed: 400, blackout: true } },
     52: { type: 'maze', config: { width: 25, height: 25, cellSize: 22, fogOfWar: true, viewRadius: 2, enemies: 4, traps: 5 } },
     53: { type: 'simon-says', config: { sequenceLength: 12, colors: 8, playbackSpeed: 350, replayAllowed: false } },
+    54: { type: 'sliding-puzzle', config: { size: 5 } },
 };
 
 // ============================================================
@@ -4176,7 +4177,7 @@ class GameScene extends Phaser.Scene {
         const { width, height } = this.scale;
         const size = config.size;
         const useImage = config.useImage || false;
-        const tileSize = size <= 3 ? 90 : 70;
+        const tileSize = size <= 3 ? 90 : size <= 4 ? 70 : 56;
         const gap = 4;
         const totalSize = size * tileSize + (size - 1) * gap;
         const startX = (width - totalSize) / 2 + tileSize / 2;
@@ -4265,7 +4266,7 @@ class GameScene extends Phaser.Scene {
 
         // Shuffle by making random valid moves from solved state (ensures solvability)
         const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        const shuffleMoves = size <= 3 ? 200 : 500;
+        const shuffleMoves = size <= 3 ? 200 : size <= 4 ? 500 : 1000;
         for (let i = 0; i < shuffleMoves; i++) {
             const validMoves = [];
             for (const [dr, dc] of dirs) {
@@ -4329,7 +4330,7 @@ class GameScene extends Phaser.Scene {
                             .setInteractive({ useHandCursor: true });
 
                         label = this.add.text(x, y, `${val}`, {
-                            fontSize: size <= 3 ? '36px' : '28px',
+                            fontSize: size <= 3 ? '36px' : size <= 4 ? '28px' : '22px',
                             fontFamily: 'Arial, sans-serif',
                             fontStyle: 'bold',
                             color: '#ffffff',
