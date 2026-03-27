@@ -11,6 +11,7 @@ const LevelRegistry = {
     4: { type: 'sorting', config: { count: 5, maxValue: 20 } },
     5: { type: 'maze', config: { width: 7, height: 7, cellSize: 60 } },
     6: { type: 'pattern-complete', config: { patternLength: 6, numChoices: 4 } },
+    7: { type: 'reaction-time', config: { targets: 5, targetSize: 50, stayTime: 2500, timeLimit: 15 } },
 };
 
 // ============================================================
@@ -192,6 +193,8 @@ class GameScene extends Phaser.Scene {
             this.createMazePuzzle(levelData.config);
         } else if (levelData && levelData.type === 'pattern-complete') {
             this.createPatternCompletePuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'reaction-time') {
+            this.createReactionTimePuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -1013,10 +1016,209 @@ class GameScene extends Phaser.Scene {
         });
     }
 
+    createReactionTimePuzzle(config) {
+        const { width, height } = this.scale;
+        const { targets, targetSize, stayTime, timeLimit } = config;
+
+        const targetColors = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xff44ff];
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Click the targets before they disappear!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // HUD
+        let score = 0;
+        let targetsShown = 0;
+        let timeLeft = timeLimit;
+        let gameOver = false;
+
+        const scoreText = this.add.text(width / 2 - 140, height - 80, `Score: ${score}/${targets}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const remainText = this.add.text(width / 2, height - 80, `Remaining: ${targets}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerText = this.add.text(width / 2 + 140, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Timer countdown
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                if (gameOver) return;
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    gameOver = true;
+                    timerEvent.remove(false);
+                    this.handleReactionTimeEnd(score, targets);
+                }
+            },
+        });
+
+        const showTarget = () => {
+            if (gameOver || targetsShown >= targets) return;
+
+            const colorIndex = targetsShown % targetColors.length;
+            const color = targetColors[colorIndex];
+            targetsShown++;
+            remainText.setText(`Remaining: ${targets - targetsShown}`);
+
+            // Random position within play area (avoid edges and HUD)
+            const margin = targetSize + 20;
+            const tx = Phaser.Math.Between(margin, width - margin);
+            const ty = Phaser.Math.Between(100, height - 120);
+
+            const circle = this.add.circle(tx, ty, targetSize, color)
+                .setInteractive({ useHandCursor: true })
+                .setAlpha(0);
+
+            // Fade in
+            this.tweens.add({
+                targets: circle,
+                alpha: 1,
+                duration: 150,
+                ease: 'Power2',
+            });
+
+            let clicked = false;
+
+            // Click handler - pop animation and score
+            circle.on('pointerdown', () => {
+                if (clicked || gameOver) return;
+                clicked = true;
+                circle.disableInteractive();
+                score++;
+                scoreText.setText(`Score: ${score}/${targets}`);
+
+                // Pop animation
+                this.tweens.add({
+                    targets: circle,
+                    scaleX: 1.5,
+                    scaleY: 1.5,
+                    alpha: 0,
+                    duration: 200,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        circle.destroy();
+                        // Brief delay then next target
+                        if (!gameOver) {
+                            this.time.delayedCall(400, () => {
+                                if (targetsShown >= targets) {
+                                    gameOver = true;
+                                    timerEvent.remove(false);
+                                    this.handleReactionTimeEnd(score, targets);
+                                } else {
+                                    showTarget();
+                                }
+                            });
+                        }
+                    },
+                });
+            });
+
+            // Disappear after stayTime if not clicked
+            this.time.delayedCall(stayTime, () => {
+                if (clicked || gameOver) return;
+                clicked = true;
+                circle.disableInteractive();
+
+                // Fade out
+                this.tweens.add({
+                    targets: circle,
+                    alpha: 0,
+                    duration: 200,
+                    ease: 'Power2',
+                    onComplete: () => {
+                        circle.destroy();
+                        if (!gameOver) {
+                            this.time.delayedCall(400, () => {
+                                if (targetsShown >= targets) {
+                                    gameOver = true;
+                                    timerEvent.remove(false);
+                                    this.handleReactionTimeEnd(score, targets);
+                                } else {
+                                    showTarget();
+                                }
+                            });
+                        }
+                    },
+                });
+            });
+        };
+
+        // Start the first target after a short delay
+        this.time.delayedCall(1000, () => {
+            showTarget();
+        });
+
+        this.reactionTimeCleanup = () => {
+            timerEvent.remove(false);
+        };
+    }
+
+    handleReactionTimeEnd(score, totalTargets) {
+        const { width, height } = this.scale;
+        const requiredScore = 3;
+
+        // Disable all interactive objects
+        this.children.list.forEach(child => {
+            if (child.input) child.disableInteractive();
+        });
+
+        // Overlay
+        this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7);
+
+        const passed = score >= requiredScore;
+
+        this.add.text(width / 2, height / 2 - 60, passed ? 'Nice Reflexes!' : 'Too Slow!', {
+            fontSize: '40px',
+            fontFamily: 'Arial, sans-serif',
+            color: passed ? '#44dd44' : '#ff4444',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, height / 2 - 10, `You hit ${score} of ${totalTargets} targets (need ${requiredScore})`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#cccccc',
+        }).setOrigin(0.5);
+
+        if (passed) {
+            this.createButton(width / 2, height / 2 + 50, 'Continue', () => {
+                this.scene.start('LevelCompleteScene', { level: this.level });
+            });
+        } else {
+            this.createButton(width / 2, height / 2 + 50, 'Retry', () => {
+                this.scene.start('GameScene', { level: this.level });
+            });
+        }
+
+        this.createButton(width / 2, height / 2 + 110, 'Back to Menu', () => {
+            this.scene.start('MenuScene');
+        }, 0x5a3a3a, 0x7a5a5a);
+    }
+
     handleTimeUp() {
         const { width, height } = this.scale;
 
         if (this.colorMatchCleanup) this.colorMatchCleanup();
+        if (this.reactionTimeCleanup) this.reactionTimeCleanup();
 
         // Disable all interactive objects
         this.children.list.forEach(child => {
