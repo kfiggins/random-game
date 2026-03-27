@@ -100,6 +100,7 @@ const LevelRegistry = {
     93: { type: 'maze', config: { width: 41, height: 41, cellSize: 14, fogOfWar: true, viewRadius: 1, enemies: 10, traps: 12, timeLimit: 60, hasKeys: true, keys: 5, teleporters: 4, darkZones: true, shifting: true } },
     94: { type: 'light-toggle', config: { size: 9, randomize: true, lockedCells: 15, chainReaction: true, timeLimit: 90 } },
     95: { type: 'math', config: { problems: 5, mode: 'number-theory', timeLimit: 120 } },
+    96: { type: 'color-chain', config: { gridSize: 14, colors: 18, fillBoard: true, timeLimit: 300 } },
 };
 
 // ============================================================
@@ -12591,10 +12592,52 @@ class GameScene extends Phaser.Scene {
             color: '#666666',
         }).setOrigin(0.5);
 
-        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa, 0x88ff44, 0xffd700, 0xff6b6b, 0x5555ff, 0xaa8844, 0x44ffaa, 0xe84393];
+        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa, 0x88ff44, 0xffd700, 0xff6b6b, 0x5555ff, 0xaa8844, 0x44ffaa, 0xe84393, 0x7788ff, 0xdd7744, 0x33aa88];
         let colorValues, endpoints;
 
-        if (gridSize === 12 && colors === 15 && fillBoard) {
+        if (gridSize === 14 && colors === 18 && fillBoard) {
+            // Hardcoded solvable 14x14 puzzle with 18 color pairs that fills all 196 cells
+            // Serpentine paths winding across the grid row by row:
+            // Path 0  (red):        (0,0)→(0,1)→...→(0,10)                          [11 cells]
+            // Path 1  (green):      (0,11)→(0,12)→(0,13)→(1,13)→...→(1,6)           [11 cells]
+            // Path 2  (blue):       (1,5)→(1,4)→...→(1,0)→(2,0)→...→(2,4)           [11 cells]
+            // Path 3  (yellow):     (2,5)→(2,6)→...→(2,13)→(3,13)→(3,12)            [11 cells]
+            // Path 4  (purple):     (3,11)→(3,10)→...→(3,1)                          [11 cells]
+            // Path 5  (orange):     (3,0)→(4,0)→(4,1)→...→(4,9)                     [11 cells]
+            // Path 6  (cyan):       (4,10)→(4,11)→(4,12)→(4,13)→(5,13)→...→(5,7)   [11 cells]
+            // Path 7  (pink):       (5,6)→(5,5)→...→(5,0)→(6,0)→...→(6,3)          [11 cells]
+            // Path 8  (lime):       (6,4)→(6,5)→...→(6,13)→(7,13)                   [11 cells]
+            // Path 9  (gold):       (7,12)→(7,11)→...→(7,2)                         [11 cells]
+            // Path 10 (coral):      (7,1)→(7,0)→(8,0)→(8,1)→...→(8,8)              [11 cells]
+            // Path 11 (indigo):     (8,9)→(8,10)→...→(8,13)→(9,13)→...→(9,8)       [11 cells]
+            // Path 12 (brown):      (9,7)→(9,6)→...→(9,0)→(10,0)→(10,1)→(10,2)    [11 cells]
+            // Path 13 (mint):       (10,3)→(10,4)→...→(10,13)                       [11 cells]
+            // Path 14 (rose):       (11,13)→(11,12)→...→(11,3)                      [11 cells]
+            // Path 15 (periwinkle): (11,2)→(11,1)→(11,0)→(12,0)→...→(12,7)         [11 cells]
+            // Path 16 (copper):     (12,8)→(12,9)→...→(12,13)→(13,13)→...→(13,10)  [10 cells]
+            // Path 17 (teal):       (13,9)→(13,8)→...→(13,0)                        [10 cells]
+            colorValues = allColorValues.slice(0, 18);
+            endpoints = [
+                { color: 0,  start: { r: 0, c: 0 },   end: { r: 0, c: 10 } },
+                { color: 1,  start: { r: 0, c: 11 },  end: { r: 1, c: 6 } },
+                { color: 2,  start: { r: 1, c: 5 },   end: { r: 2, c: 4 } },
+                { color: 3,  start: { r: 2, c: 5 },   end: { r: 3, c: 12 } },
+                { color: 4,  start: { r: 3, c: 11 },  end: { r: 3, c: 1 } },
+                { color: 5,  start: { r: 3, c: 0 },   end: { r: 4, c: 9 } },
+                { color: 6,  start: { r: 4, c: 10 },  end: { r: 5, c: 7 } },
+                { color: 7,  start: { r: 5, c: 6 },   end: { r: 6, c: 3 } },
+                { color: 8,  start: { r: 6, c: 4 },   end: { r: 7, c: 13 } },
+                { color: 9,  start: { r: 7, c: 12 },  end: { r: 7, c: 2 } },
+                { color: 10, start: { r: 7, c: 1 },   end: { r: 8, c: 8 } },
+                { color: 11, start: { r: 8, c: 9 },   end: { r: 9, c: 8 } },
+                { color: 12, start: { r: 9, c: 7 },   end: { r: 10, c: 2 } },
+                { color: 13, start: { r: 10, c: 3 },  end: { r: 10, c: 13 } },
+                { color: 14, start: { r: 11, c: 13 }, end: { r: 11, c: 3 } },
+                { color: 15, start: { r: 11, c: 2 },  end: { r: 12, c: 7 } },
+                { color: 16, start: { r: 12, c: 8 },  end: { r: 13, c: 10 } },
+                { color: 17, start: { r: 13, c: 9 },  end: { r: 13, c: 0 } },
+            ];
+        } else if (gridSize === 12 && colors === 15 && fillBoard) {
             // Hardcoded solvable 12x12 puzzle with 15 color pairs that fills all 144 cells
             // Serpentine paths winding across the grid:
             // Path 0  (red):     (0,0)→(0,1)→(0,2)→(0,3)→(0,4)→(0,5)→(0,6)→(0,7)→(0,8)→(0,9)
@@ -12765,7 +12808,7 @@ class GameScene extends Phaser.Scene {
         let solved = false;
 
         // Drawing
-        const cellSize = gridSize <= 5 ? 70 : gridSize <= 7 ? 58 : gridSize <= 10 ? 44 : 34;
+        const cellSize = gridSize <= 5 ? 70 : gridSize <= 7 ? 58 : gridSize <= 10 ? 44 : gridSize <= 12 ? 34 : 26;
         const gap = 4;
         const totalSize = gridSize * cellSize + (gridSize - 1) * gap;
         const startX = (width - totalSize) / 2 + cellSize / 2;
