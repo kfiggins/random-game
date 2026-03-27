@@ -53,6 +53,7 @@ const LevelRegistry = {
     46: { type: 'pattern-complete', config: { patternLength: 12, numChoices: 6, is2D: true, perspective: true } },
     47: { type: 'sorting', config: { count: 12, maxValue: 100, adjacentOnly: true, maxSwaps: 30 } },
     48: { type: 'math', config: { problems: 3, mode: 'algebra', timeLimit: 90 } },
+    49: { type: 'light-toggle', config: { size: 6, randomize: true, lockedCells: 4 } },
 };
 
 // ============================================================
@@ -4171,7 +4172,7 @@ class GameScene extends Phaser.Scene {
 
     createLightTogglePuzzle(config) {
         const { width, height } = this.scale;
-        const { size } = config;
+        const { size, lockedCells: numLocked } = config;
 
         // Instructions
         this.add.text(width / 2, 70, 'Turn ALL lights ON!', {
@@ -4180,11 +4181,30 @@ class GameScene extends Phaser.Scene {
             color: '#aaaaaa',
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, 95, 'Clicking a cell toggles it and its neighbors', {
+        const instrDetail = numLocked
+            ? 'Clicking a cell toggles it and its neighbors. Locked cells cannot be clicked.'
+            : 'Clicking a cell toggles it and its neighbors';
+        this.add.text(width / 2, 95, instrDetail, {
             fontSize: '14px',
             fontFamily: 'Arial, sans-serif',
             color: '#666666',
         }).setOrigin(0.5);
+
+        // Determine locked cell positions
+        const locked = [];
+        if (numLocked && numLocked > 0) {
+            const allPositions = [];
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    allPositions.push([r, c]);
+                }
+            }
+            const shuffled = Phaser.Utils.Array.Shuffle(allPositions);
+            for (let i = 0; i < numLocked; i++) {
+                locked.push(shuffled[i]);
+            }
+        }
+        const isLocked = (r, c) => locked.some(([lr, lc]) => lr === r && lc === c);
 
         // Grid state: true = lit, false = dark
         const grid = [];
@@ -4196,10 +4216,17 @@ class GameScene extends Phaser.Scene {
         }
 
         // Apply random toggles from all-on state to guarantee solvability
-        const numToggles = Phaser.Math.Between(3, size * size);
+        // Only toggle from non-locked positions so the puzzle is solvable
+        const clickable = [];
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+                if (!isLocked(r, c)) clickable.push([r, c]);
+            }
+        }
+        const numToggles = Phaser.Math.Between(3, clickable.length);
         for (let t = 0; t < numToggles; t++) {
-            const tr = Phaser.Math.Between(0, size - 1);
-            const tc = Phaser.Math.Between(0, size - 1);
+            const idx = Phaser.Math.Between(0, clickable.length - 1);
+            const [tr, tc] = clickable[idx];
             // Toggle cell and neighbors
             grid[tr][tc] = !grid[tr][tc];
             if (tr > 0) grid[tr - 1][tc] = !grid[tr - 1][tc];
@@ -4211,8 +4238,8 @@ class GameScene extends Phaser.Scene {
         // If all are already on after randomization, do one more toggle
         const allOn = () => grid.every(row => row.every(cell => cell));
         if (allOn()) {
-            const mr = Phaser.Math.Between(0, size - 1);
-            const mc = Phaser.Math.Between(0, size - 1);
+            const idx = Phaser.Math.Between(0, clickable.length - 1);
+            const [mr, mc] = clickable[idx];
             grid[mr][mc] = !grid[mr][mc];
             if (mr > 0) grid[mr - 1][mc] = !grid[mr - 1][mc];
             if (mr < size - 1) grid[mr + 1][mc] = !grid[mr + 1][mc];
@@ -4231,7 +4258,7 @@ class GameScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         // Draw the grid
-        const cellSize = 80;
+        const cellSize = numLocked ? Math.min(80, Math.floor((Math.min(width, height) - 200) / size)) : 80;
         const gap = 6;
         const totalSize = size * cellSize + (size - 1) * gap;
         const startX = (width - totalSize) / 2 + cellSize / 2;
@@ -4241,10 +4268,15 @@ class GameScene extends Phaser.Scene {
 
         const litColor = 0xffdd44;
         const darkColor = 0x444444;
+        const lockedLitColor = 0xccaa22;
+        const lockedDarkColor = 0x333333;
 
         const updateCell = (r, c) => {
-            const color = grid[r][c] ? litColor : darkColor;
-            cellGraphics[r][c].setFillStyle(color);
+            if (isLocked(r, c)) {
+                cellGraphics[r][c].setFillStyle(grid[r][c] ? lockedLitColor : lockedDarkColor);
+            } else {
+                cellGraphics[r][c].setFillStyle(grid[r][c] ? litColor : darkColor);
+            }
         };
 
         for (let r = 0; r < size; r++) {
@@ -4252,38 +4284,51 @@ class GameScene extends Phaser.Scene {
             for (let c = 0; c < size; c++) {
                 const x = startX + c * (cellSize + gap);
                 const y = startY + r * (cellSize + gap);
-                const color = grid[r][c] ? litColor : darkColor;
+                const cellIsLocked = isLocked(r, c);
+                const color = cellIsLocked
+                    ? (grid[r][c] ? lockedLitColor : lockedDarkColor)
+                    : (grid[r][c] ? litColor : darkColor);
 
                 const cell = this.add.rectangle(x, y, cellSize, cellSize, color)
-                    .setStrokeStyle(2, 0x888888)
-                    .setInteractive({ useHandCursor: true });
+                    .setStrokeStyle(2, cellIsLocked ? 0xaa6600 : 0x888888);
 
                 cellGraphics[r][c] = cell;
 
-                cell.on('pointerdown', () => {
-                    if (solved) return;
+                if (cellIsLocked) {
+                    // Draw lock icon on locked cells
+                    const lockSize = Math.floor(cellSize * 0.35);
+                    this.add.text(x, y, '\u{1F512}', {
+                        fontSize: `${lockSize}px`,
+                        fontFamily: 'Arial, sans-serif',
+                    }).setOrigin(0.5);
+                } else {
+                    cell.setInteractive({ useHandCursor: true });
 
-                    // Toggle this cell and orthogonal neighbors
-                    const toggles = [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
-                    toggles.forEach(([tr, tc]) => {
-                        if (tr >= 0 && tr < size && tc >= 0 && tc < size) {
-                            grid[tr][tc] = !grid[tr][tc];
-                            updateCell(tr, tc);
+                    cell.on('pointerdown', () => {
+                        if (solved) return;
+
+                        // Toggle this cell and orthogonal neighbors
+                        const toggles = [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
+                        toggles.forEach(([tr, tc]) => {
+                            if (tr >= 0 && tr < size && tc >= 0 && tc < size) {
+                                grid[tr][tc] = !grid[tr][tc];
+                                updateCell(tr, tc);
+                            }
+                        });
+
+                        moves++;
+                        moveText.setText(`Moves: ${moves}`);
+
+                        // Check win
+                        if (allOn()) {
+                            solved = true;
+                            moveText.setText(`Solved in ${moves} moves!`).setColor('#44dd44');
+                            this.time.delayedCall(800, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
                         }
                     });
-
-                    moves++;
-                    moveText.setText(`Moves: ${moves}`);
-
-                    // Check win
-                    if (allOn()) {
-                        solved = true;
-                        moveText.setText(`Solved in ${moves} moves!`).setColor('#44dd44');
-                        this.time.delayedCall(800, () => {
-                            this.scene.start('LevelCompleteScene', { level: this.level });
-                        });
-                    }
-                });
+                }
             }
         }
     }
