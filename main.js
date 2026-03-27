@@ -21,6 +21,7 @@ const LevelRegistry = {
     14: { type: 'sliding-puzzle', config: { size: 3 } },
     15: { type: 'maze', config: { width: 11, height: 11, cellSize: 45 } },
     16: { type: 'sequence-logic', config: { sequenceLength: 5, numChoices: 4 } },
+    17: { type: 'reaction-time', config: { targets: 8, targetSize: 40, stayTime: 2000, timeLimit: 20, hasDecoys: true } },
 };
 
 // ============================================================
@@ -1058,12 +1059,16 @@ class GameScene extends Phaser.Scene {
 
     createReactionTimePuzzle(config) {
         const { width, height } = this.scale;
-        const { targets, targetSize, stayTime, timeLimit } = config;
+        const { targets, targetSize, stayTime, timeLimit, hasDecoys } = config;
 
-        const targetColors = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xff44ff];
+        const targetColors = [0x44dd44, 0x4488ff, 0xffdd44, 0xff44ff, 0x44dddd];
+        const requiredScore = hasDecoys ? 5 : 3;
 
         // Instructions
-        this.add.text(width / 2, 70, 'Click the targets before they disappear!', {
+        const instructions = hasDecoys
+            ? 'Click the colored circles! Avoid the red X decoys!'
+            : 'Click the targets before they disappear!';
+        this.add.text(width / 2, 70, instructions, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
             color: '#aaaaaa',
@@ -1107,16 +1112,31 @@ class GameScene extends Phaser.Scene {
                 if (timeLeft <= 0) {
                     gameOver = true;
                     timerEvent.remove(false);
-                    this.handleReactionTimeEnd(score, targets);
+                    this.handleReactionTimeEnd(score, targets, requiredScore);
                 }
             },
         });
 
+        const advanceAfterTarget = () => {
+            if (!gameOver) {
+                this.time.delayedCall(400, () => {
+                    if (targetsShown >= targets) {
+                        gameOver = true;
+                        timerEvent.remove(false);
+                        this.handleReactionTimeEnd(score, targets, requiredScore);
+                    } else {
+                        showTarget();
+                    }
+                });
+            }
+        };
+
         const showTarget = () => {
             if (gameOver || targetsShown >= targets) return;
 
+            const isDecoy = hasDecoys && Math.random() < 0.35;
             const colorIndex = targetsShown % targetColors.length;
-            const color = targetColors[colorIndex];
+            const color = isDecoy ? 0xff4444 : targetColors[colorIndex];
             targetsShown++;
             remainText.setText(`Remaining: ${targets - targetsShown}`);
 
@@ -1129,9 +1149,23 @@ class GameScene extends Phaser.Scene {
                 .setInteractive({ useHandCursor: true })
                 .setAlpha(0);
 
+            // Draw an X on decoys
+            let decoyX = null;
+            if (isDecoy) {
+                const lineLen = targetSize * 0.6;
+                decoyX = this.add.graphics().setAlpha(0);
+                decoyX.lineStyle(4, 0xffffff);
+                decoyX.beginPath();
+                decoyX.moveTo(tx - lineLen, ty - lineLen);
+                decoyX.lineTo(tx + lineLen, ty + lineLen);
+                decoyX.moveTo(tx + lineLen, ty - lineLen);
+                decoyX.lineTo(tx - lineLen, ty + lineLen);
+                decoyX.strokePath();
+            }
+
             // Fade in
             this.tweens.add({
-                targets: circle,
+                targets: decoyX ? [circle, decoyX] : circle,
                 alpha: 1,
                 duration: 150,
                 ease: 'Power2',
@@ -1139,17 +1173,22 @@ class GameScene extends Phaser.Scene {
 
             let clicked = false;
 
-            // Click handler - pop animation and score
+            // Click handler
             circle.on('pointerdown', () => {
                 if (clicked || gameOver) return;
                 clicked = true;
                 circle.disableInteractive();
-                score++;
+
+                if (isDecoy) {
+                    score = Math.max(0, score - 1);
+                } else {
+                    score++;
+                }
                 scoreText.setText(`Score: ${score}/${targets}`);
 
                 // Pop animation
                 this.tweens.add({
-                    targets: circle,
+                    targets: decoyX ? [circle, decoyX] : circle,
                     scaleX: 1.5,
                     scaleY: 1.5,
                     alpha: 0,
@@ -1157,18 +1196,8 @@ class GameScene extends Phaser.Scene {
                     ease: 'Power2',
                     onComplete: () => {
                         circle.destroy();
-                        // Brief delay then next target
-                        if (!gameOver) {
-                            this.time.delayedCall(400, () => {
-                                if (targetsShown >= targets) {
-                                    gameOver = true;
-                                    timerEvent.remove(false);
-                                    this.handleReactionTimeEnd(score, targets);
-                                } else {
-                                    showTarget();
-                                }
-                            });
-                        }
+                        if (decoyX) decoyX.destroy();
+                        advanceAfterTarget();
                     },
                 });
             });
@@ -1181,23 +1210,14 @@ class GameScene extends Phaser.Scene {
 
                 // Fade out
                 this.tweens.add({
-                    targets: circle,
+                    targets: decoyX ? [circle, decoyX] : circle,
                     alpha: 0,
                     duration: 200,
                     ease: 'Power2',
                     onComplete: () => {
                         circle.destroy();
-                        if (!gameOver) {
-                            this.time.delayedCall(400, () => {
-                                if (targetsShown >= targets) {
-                                    gameOver = true;
-                                    timerEvent.remove(false);
-                                    this.handleReactionTimeEnd(score, targets);
-                                } else {
-                                    showTarget();
-                                }
-                            });
-                        }
+                        if (decoyX) decoyX.destroy();
+                        advanceAfterTarget();
                     },
                 });
             });
@@ -1373,9 +1393,8 @@ class GameScene extends Phaser.Scene {
         showProblem();
     }
 
-    handleReactionTimeEnd(score, totalTargets) {
+    handleReactionTimeEnd(score, totalTargets, requiredScore = 3) {
         const { width, height } = this.scale;
-        const requiredScore = 3;
 
         // Disable all interactive objects
         this.children.list.forEach(child => {
