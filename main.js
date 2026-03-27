@@ -81,6 +81,7 @@ const LevelRegistry = {
     74: { type: 'maze', config: { width: 31, height: 31, cellSize: 18, fogOfWar: true, viewRadius: 2, enemies: 7, traps: 8, timeLimit: 90, hasKeys: true, keys: 4, teleporters: 2 } },
     75: { type: 'light-toggle', config: { size: 8, randomize: true, lockedCells: 10, chainReaction: true } },
     76: { type: 'jigsaw', config: { rows: 6, cols: 6, canRotate: true, timeLimit: 120 } },
+    77: { type: 'math', config: { problems: 4, mode: 'rate-of-change', timeLimit: 120 } },
 };
 
 // ============================================================
@@ -3061,6 +3062,10 @@ class GameScene extends Phaser.Scene {
             return this.createEquationBuilderPuzzle(config);
         }
 
+        if (config.mode === 'rate-of-change') {
+            return this.createRateOfChangePuzzle(config);
+        }
+
         const { problems, operations, maxNum, timeLimit } = config;
 
         // Instructions
@@ -4490,6 +4495,451 @@ class GameScene extends Phaser.Scene {
                     slot.sourceItem = null;
                 });
                 if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
+            });
+        };
+
+        showProblem();
+    }
+
+    createRateOfChangePuzzle(config) {
+        const { width, height } = this.scale;
+        const { problems, timeLimit } = config;
+
+        this.add.text(width / 2, 40, 'Read the graph and answer!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2 + 200, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.mathCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.mathCleanup = () => {
+            timerEvent.remove(false);
+        };
+
+        let currentProblem = 0;
+
+        const progressText = this.add.text(width / 2 - 200, height - 80, `Question 1/${problems}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        let dynamicObjects = [];
+
+        const clearDynamic = () => {
+            dynamicObjects.forEach(obj => obj.destroy());
+            dynamicObjects = [];
+        };
+
+        // Function generators that produce {fn, label, desc} where fn(x) returns y
+        const functionGenerators = [
+            // Quadratic: a*x^2 + b*x + c
+            () => {
+                const a = Phaser.Math.FloatBetween(0.05, 0.3) * (Phaser.Math.Between(0, 1) ? 1 : -1);
+                const b = Phaser.Math.FloatBetween(-1, 2);
+                const c = Phaser.Math.Between(1, 5);
+                const fn = (x) => a * x * x + b * x + c;
+                const aStr = a > 0 ? a.toFixed(2) : `(${a.toFixed(2)})`;
+                return { fn, label: `f(x) = ${aStr}x² + ${b.toFixed(1)}x + ${c}`, a, b, c, type: 'quadratic' };
+            },
+            // Sine wave: a*sin(b*x) + c
+            () => {
+                const a = Phaser.Math.Between(2, 5);
+                const b = Phaser.Math.FloatBetween(0.3, 0.8);
+                const c = Phaser.Math.Between(3, 6);
+                const fn = (x) => a * Math.sin(b * x) + c;
+                return { fn, label: `f(x) = ${a}·sin(${b.toFixed(1)}x) + ${c}`, a, b, c, type: 'sine' };
+            },
+            // Linear with kink: different slopes in two halves
+            () => {
+                const m1 = Phaser.Math.FloatBetween(0.5, 2.0);
+                const m2 = Phaser.Math.FloatBetween(-1.5, 0.5);
+                const c = Phaser.Math.Between(1, 4);
+                const kink = 5;
+                const fn = (x) => x <= kink ? m1 * x + c : m1 * kink + c + m2 * (x - kink);
+                return { fn, label: 'Piecewise linear', m1, m2, c, kink, type: 'piecewise' };
+            },
+            // Exponential growth: a * e^(b*x) + c
+            () => {
+                const a = Phaser.Math.FloatBetween(0.5, 1.5);
+                const b = Phaser.Math.FloatBetween(0.15, 0.25);
+                const c = Phaser.Math.Between(1, 3);
+                const fn = (x) => a * Math.exp(b * x) + c;
+                return { fn, label: `f(x) = ${a.toFixed(1)}·e^(${b.toFixed(2)}x) + ${c}`, type: 'exponential' };
+            },
+        ];
+
+        // Question generators that produce {question, choices, correctIndex}
+        // Each takes the function data and graph parameters
+        const questionGenerators = [
+            // "At what point is the value increasing fastest?"
+            (funcData, xMin, xMax, step) => {
+                // Sample rate of change at various x values
+                const candidates = [];
+                for (let x = xMin + step; x <= xMax - step; x += step) {
+                    const rate = (funcData.fn(x + step) - funcData.fn(x - step)) / (2 * step);
+                    candidates.push({ x: Math.round(x * 10) / 10, rate });
+                }
+                candidates.sort((a, b) => b.rate - a.rate);
+                const best = candidates[0];
+                // Pick 3 wrong answers from different parts
+                const wrong = candidates.filter(c => Math.abs(c.x - best.x) > 1.5).slice(0, 3);
+                while (wrong.length < 3) {
+                    wrong.push({ x: Phaser.Math.FloatBetween(xMin + 1, xMax - 1), rate: 0 });
+                }
+                const choices = Phaser.Utils.Array.Shuffle([
+                    { label: `x ≈ ${best.x}`, correct: true },
+                    { label: `x ≈ ${wrong[0].x.toFixed ? wrong[0].x.toFixed(1) : wrong[0].x}`, correct: false },
+                    { label: `x ≈ ${wrong[1].x.toFixed ? wrong[1].x.toFixed(1) : wrong[1].x}`, correct: false },
+                    { label: `x ≈ ${wrong[2].x.toFixed ? wrong[2].x.toFixed(1) : wrong[2].x}`, correct: false },
+                ]);
+                const correctIndex = choices.findIndex(c => c.correct);
+                return {
+                    question: 'Where is the value increasing fastest?',
+                    choices: choices.map(c => c.label),
+                    correctIndex,
+                };
+            },
+            // "What is the approximate value at x=N?"
+            (funcData, xMin, xMax) => {
+                const queryX = Phaser.Math.Between(Math.ceil(xMin) + 1, Math.floor(xMax) - 1);
+                const actual = funcData.fn(queryX);
+                const rounded = Math.round(actual * 10) / 10;
+                // Generate wrong choices that are plausible
+                const offsets = Phaser.Utils.Array.Shuffle([2, -2, 4, -3, 1.5, -1.5]);
+                const wrongs = [];
+                for (const off of offsets) {
+                    const val = Math.round((rounded + off) * 10) / 10;
+                    if (val !== rounded && !wrongs.includes(val)) wrongs.push(val);
+                    if (wrongs.length >= 3) break;
+                }
+                const choices = Phaser.Utils.Array.Shuffle([
+                    { label: `≈ ${rounded}`, correct: true },
+                    { label: `≈ ${wrongs[0]}`, correct: false },
+                    { label: `≈ ${wrongs[1]}`, correct: false },
+                    { label: `≈ ${wrongs[2]}`, correct: false },
+                ]);
+                const correctIndex = choices.findIndex(c => c.correct);
+                return {
+                    question: `What is the approximate value at x = ${queryX}?`,
+                    choices: choices.map(c => c.label),
+                    correctIndex,
+                };
+            },
+            // "Where is the function decreasing?"
+            (funcData, xMin, xMax, step) => {
+                // Find intervals where function is decreasing
+                const intervals = [];
+                let decStart = null;
+                for (let x = xMin; x <= xMax - step; x += step) {
+                    const slope = funcData.fn(x + step) - funcData.fn(x);
+                    if (slope < -0.01) {
+                        if (decStart === null) decStart = x;
+                    } else {
+                        if (decStart !== null) {
+                            intervals.push({ start: Math.round(decStart * 10) / 10, end: Math.round(x * 10) / 10 });
+                            decStart = null;
+                        }
+                    }
+                }
+                if (decStart !== null) {
+                    intervals.push({ start: Math.round(decStart * 10) / 10, end: Math.round(xMax * 10) / 10 });
+                }
+
+                if (intervals.length === 0) {
+                    // Fallback: ask value question instead
+                    return questionGenerators[1](funcData, xMin, xMax, step);
+                }
+
+                const correctInterval = intervals[0];
+                const correctLabel = `x = ${correctInterval.start} to ${correctInterval.end}`;
+
+                // Generate wrong interval choices
+                const wrongIntervals = [];
+                for (let i = 0; i < 3; i++) {
+                    const s = Phaser.Math.FloatBetween(xMin, xMax - 2);
+                    const e = Math.round((s + Phaser.Math.FloatBetween(1, 3)) * 10) / 10;
+                    wrongIntervals.push(`x = ${Math.round(s * 10) / 10} to ${Math.min(e, xMax)}`);
+                }
+
+                const choices = Phaser.Utils.Array.Shuffle([
+                    { label: correctLabel, correct: true },
+                    { label: wrongIntervals[0], correct: false },
+                    { label: wrongIntervals[1], correct: false },
+                    { label: wrongIntervals[2], correct: false },
+                ]);
+                const correctIndex = choices.findIndex(c => c.correct);
+                return {
+                    question: 'Over which interval is the function decreasing?',
+                    choices: choices.map(c => c.label),
+                    correctIndex,
+                };
+            },
+            // "What is the approximate rate of change at x=N?"
+            (funcData, xMin, xMax, step) => {
+                const queryX = Phaser.Math.Between(Math.ceil(xMin) + 1, Math.floor(xMax) - 1);
+                const rate = (funcData.fn(queryX + step) - funcData.fn(queryX - step)) / (2 * step);
+                const rounded = Math.round(rate * 10) / 10;
+                const offsets = Phaser.Utils.Array.Shuffle([1.5, -1.5, 3, -2, 0.8, -0.8]);
+                const wrongs = [];
+                for (const off of offsets) {
+                    const val = Math.round((rounded + off) * 10) / 10;
+                    if (val !== rounded && !wrongs.includes(val)) wrongs.push(val);
+                    if (wrongs.length >= 3) break;
+                }
+                const choices = Phaser.Utils.Array.Shuffle([
+                    { label: `≈ ${rounded}`, correct: true },
+                    { label: `≈ ${wrongs[0]}`, correct: false },
+                    { label: `≈ ${wrongs[1]}`, correct: false },
+                    { label: `≈ ${wrongs[2]}`, correct: false },
+                ]);
+                const correctIndex = choices.findIndex(c => c.correct);
+                return {
+                    question: `What is the approximate rate of change at x = ${queryX}?`,
+                    choices: choices.map(c => c.label),
+                    correctIndex,
+                };
+            },
+        ];
+
+        const drawGraph = (funcData, graphX, graphY, graphW, graphH, xMin, xMax) => {
+            const graphics = this.add.graphics();
+            dynamicObjects.push(graphics);
+
+            // Background
+            graphics.fillStyle(0x1a1a2e, 1);
+            graphics.fillRect(graphX, graphY, graphW, graphH);
+
+            // Border
+            graphics.lineStyle(2, 0x444466);
+            graphics.strokeRect(graphX, graphY, graphW, graphH);
+
+            // Compute y range from function
+            const step = 0.5;
+            let yMin = Infinity, yMax = -Infinity;
+            const points = [];
+            for (let x = xMin; x <= xMax; x += step) {
+                const y = funcData.fn(x);
+                if (y < yMin) yMin = y;
+                if (y > yMax) yMax = y;
+                points.push({ x, y });
+            }
+            // Add some padding to y range
+            const yPad = (yMax - yMin) * 0.1 || 1;
+            yMin -= yPad;
+            yMax += yPad;
+
+            const toScreenX = (x) => graphX + ((x - xMin) / (xMax - xMin)) * graphW;
+            const toScreenY = (y) => graphY + graphH - ((y - yMin) / (yMax - yMin)) * graphH;
+
+            // Grid lines and labels
+            graphics.lineStyle(1, 0x333355);
+            const xStep = Math.ceil((xMax - xMin) / 10);
+            for (let x = Math.ceil(xMin); x <= xMax; x += xStep) {
+                const sx = toScreenX(x);
+                graphics.moveTo(sx, graphY);
+                graphics.lineTo(sx, graphY + graphH);
+                graphics.strokePath();
+                const label = this.add.text(sx, graphY + graphH + 5, `${x}`, {
+                    fontSize: '11px', fontFamily: 'Arial, sans-serif', color: '#888888',
+                }).setOrigin(0.5, 0);
+                dynamicObjects.push(label);
+            }
+
+            const yStepVal = (yMax - yMin) / 5;
+            for (let i = 0; i <= 5; i++) {
+                const yVal = yMin + i * yStepVal;
+                const sy = toScreenY(yVal);
+                graphics.moveTo(graphX, sy);
+                graphics.lineTo(graphX + graphW, sy);
+                graphics.strokePath();
+                const label = this.add.text(graphX - 5, sy, `${yVal.toFixed(1)}`, {
+                    fontSize: '10px', fontFamily: 'Arial, sans-serif', color: '#888888',
+                }).setOrigin(1, 0.5);
+                dynamicObjects.push(label);
+            }
+
+            // Draw x-axis if in range
+            if (yMin <= 0 && yMax >= 0) {
+                graphics.lineStyle(1, 0x666688);
+                const zeroY = toScreenY(0);
+                graphics.moveTo(graphX, zeroY);
+                graphics.lineTo(graphX + graphW, zeroY);
+                graphics.strokePath();
+            }
+
+            // Axis labels
+            const xAxisLabel = this.add.text(graphX + graphW / 2, graphY + graphH + 22, 'x', {
+                fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5);
+            dynamicObjects.push(xAxisLabel);
+
+            const yAxisLabel = this.add.text(graphX - 30, graphY + graphH / 2, 'f(x)', {
+                fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5).setAngle(-90);
+            dynamicObjects.push(yAxisLabel);
+
+            // Plot the curve
+            graphics.lineStyle(3, 0x44aaff);
+            graphics.beginPath();
+            for (let i = 0; i < points.length; i++) {
+                const sx = toScreenX(points[i].x);
+                const sy = toScreenY(points[i].y);
+                if (i === 0) {
+                    graphics.moveTo(sx, sy);
+                } else {
+                    graphics.lineTo(sx, sy);
+                }
+            }
+            graphics.strokePath();
+
+            // Plot dots at integer x values
+            for (let x = Math.ceil(xMin); x <= Math.floor(xMax); x++) {
+                const y = funcData.fn(x);
+                const sx = toScreenX(x);
+                const sy = toScreenY(y);
+                graphics.fillStyle(0x44aaff, 1);
+                graphics.fillCircle(sx, sy, 4);
+            }
+
+            return { toScreenX, toScreenY, yMin, yMax };
+        };
+
+        const showProblem = () => {
+            clearDynamic();
+            progressText.setText(`Question ${currentProblem + 1}/${problems}`);
+
+            // Pick a random function
+            const funcData = functionGenerators[Phaser.Math.Between(0, functionGenerators.length - 1)]();
+            const xMin = 0;
+            const xMax = 10;
+            const step = 0.5;
+
+            // Graph area
+            const graphX = 80;
+            const graphY = 65;
+            const graphW = width - 160;
+            const graphH = 260;
+
+            drawGraph(funcData, graphX, graphY, graphW, graphH, xMin, xMax);
+
+            // Pick a question type, cycling through them
+            const qGen = questionGenerators[currentProblem % questionGenerators.length];
+            const qData = qGen(funcData, xMin, xMax, step);
+
+            // Display question
+            const questionText = this.add.text(width / 2, graphY + graphH + 50, qData.question, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+                wordWrap: { width: width - 80 },
+            }).setOrigin(0.5);
+            dynamicObjects.push(questionText);
+
+            // Display choices as buttons
+            const choiceStartY = graphY + graphH + 90;
+            const choiceBtns = [];
+
+            qData.choices.forEach((choice, i) => {
+                const col = i % 2;
+                const row = Math.floor(i / 2);
+                const btnX = width / 2 - 140 + col * 280;
+                const btnY = choiceStartY + row * 55;
+
+                const bg = this.add.rectangle(btnX, btnY, 250, 44, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true });
+                dynamicObjects.push(bg);
+
+                const txt = this.add.text(btnX, btnY, choice, {
+                    fontSize: '16px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                dynamicObjects.push(txt);
+
+                bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                choiceBtns.push({ bg, txt, index: i });
+
+                bg.on('pointerdown', () => {
+                    // Disable all choice buttons
+                    choiceBtns.forEach(b => {
+                        b.bg.disableInteractive();
+                        b.bg.off('pointerover');
+                        b.bg.off('pointerout');
+                    });
+
+                    if (i === qData.correctIndex) {
+                        bg.setFillStyle(0x44aa44);
+                        const fb = this.add.text(width / 2, choiceStartY + 120, 'Correct!', {
+                            fontSize: '22px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#44dd44',
+                        }).setOrigin(0.5);
+                        dynamicObjects.push(fb);
+
+                        currentProblem++;
+                        if (currentProblem >= problems) {
+                            timerEvent.remove(false);
+                            this.mathCleanup = null;
+                            this.time.delayedCall(800, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
+                        } else {
+                            this.time.delayedCall(800, () => {
+                                showProblem();
+                            });
+                        }
+                    } else {
+                        bg.setFillStyle(0xaa4444);
+                        // Highlight correct answer
+                        choiceBtns[qData.correctIndex].bg.setFillStyle(0x44aa44);
+                        const fb = this.add.text(width / 2, choiceStartY + 120, 'Wrong! The correct answer is highlighted.', {
+                            fontSize: '18px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#ff4444',
+                        }).setOrigin(0.5);
+                        dynamicObjects.push(fb);
+
+                        // Still advance after showing the correct answer
+                        currentProblem++;
+                        if (currentProblem >= problems) {
+                            timerEvent.remove(false);
+                            this.mathCleanup = null;
+                            this.time.delayedCall(1500, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
+                        } else {
+                            this.time.delayedCall(1500, () => {
+                                showProblem();
+                            });
+                        }
+                    }
+                });
             });
         };
 
