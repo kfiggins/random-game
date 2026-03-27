@@ -52,6 +52,7 @@ const LevelRegistry = {
     45: { type: 'maze', config: { width: 23, height: 23, cellSize: 24, fogOfWar: true, viewRadius: 3, enemies: 3 } },
     46: { type: 'pattern-complete', config: { patternLength: 12, numChoices: 6, is2D: true, perspective: true } },
     47: { type: 'sorting', config: { count: 12, maxValue: 100, adjacentOnly: true, maxSwaps: 30 } },
+    48: { type: 'math', config: { problems: 3, mode: 'algebra', timeLimit: 90 } },
 };
 
 // ============================================================
@@ -2281,6 +2282,10 @@ class GameScene extends Phaser.Scene {
             return this.createFillOperatorsPuzzle(config);
         }
 
+        if (config.mode === 'algebra') {
+            return this.createAlgebraPuzzle(config);
+        }
+
         const { problems, operations, maxNum, timeLimit } = config;
 
         // Instructions
@@ -2660,6 +2665,335 @@ class GameScene extends Phaser.Scene {
                 });
 
                 choiceButtons.push({ bg, text: txt });
+            });
+        };
+
+        showProblem();
+    }
+
+    createAlgebraPuzzle(config) {
+        const { width, height } = this.scale;
+        const { problems, timeLimit } = config;
+
+        this.add.text(width / 2, 70, 'Solve for x and y!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2 + 200, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.mathCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.mathCleanup = () => {
+            timerEvent.remove(false);
+        };
+
+        let currentProblem = 0;
+
+        const progressText = this.add.text(width / 2 - 200, height - 80, `Problem 1/${problems}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        let dynamicElements = [];
+
+        const destroyDynamic = () => {
+            dynamicElements.forEach(el => el.destroy());
+            dynamicElements = [];
+        };
+
+        const generateEquations = () => {
+            // Generate x and y with values 0-20
+            const x = Phaser.Math.Between(1, 15);
+            const y = Phaser.Math.Between(1, 15);
+
+            // Pick equation templates
+            const templates = [
+                // x + a = b
+                () => {
+                    const a = Phaser.Math.Between(1, 10);
+                    return { eq: `x + ${a} = ${x + a}`, desc: 'x' };
+                },
+                // x - a = b
+                () => {
+                    const a = Phaser.Math.Between(1, Math.min(x - 1, 10));
+                    if (a < 1) return null;
+                    return { eq: `x - ${a} = ${x - a}`, desc: 'x' };
+                },
+                // a * x = b (small multiplier)
+                () => {
+                    const a = Phaser.Math.Between(2, 4);
+                    return { eq: `${a} × x = ${a * x}`, desc: 'x' };
+                },
+                // y + a = b
+                () => {
+                    const a = Phaser.Math.Between(1, 10);
+                    return { eq: `y + ${a} = ${y + a}`, desc: 'y' };
+                },
+                // y - x = b
+                () => {
+                    if (y >= x) return { eq: `y - x = ${y - x}`, desc: 'xy' };
+                    return { eq: `x - y = ${x - y}`, desc: 'xy' };
+                },
+                // x + y = b
+                () => {
+                    return { eq: `x + y = ${x + y}`, desc: 'xy' };
+                },
+                // y - a = b
+                () => {
+                    const a = Phaser.Math.Between(1, Math.min(y - 1, 10));
+                    if (a < 1) return null;
+                    return { eq: `y - ${a} = ${y - a}`, desc: 'y' };
+                },
+                // a * y = b
+                () => {
+                    const a = Phaser.Math.Between(2, 4);
+                    return { eq: `${a} × y = ${a * y}`, desc: 'y' };
+                },
+            ];
+
+            // We need 2 equations that together let us solve for both x and y
+            // Pick one equation involving only x, and one involving y (or both)
+            let eq1 = null, eq2 = null;
+            const shuffled = Phaser.Utils.Array.Shuffle([...templates]);
+
+            for (const tmpl of shuffled) {
+                const result = tmpl();
+                if (!result) continue;
+                if (!eq1) {
+                    eq1 = result;
+                } else if (!eq2) {
+                    // Make sure the two equations together cover both x and y
+                    const covers = eq1.desc + result.desc;
+                    if (covers.includes('x') && covers.includes('y')) {
+                        eq2 = result;
+                        break;
+                    }
+                }
+            }
+
+            // Fallback
+            if (!eq1 || !eq2) {
+                const a = Phaser.Math.Between(1, 10);
+                eq1 = { eq: `x + ${a} = ${x + a}` };
+                eq2 = { eq: `x + y = ${x + y}` };
+            }
+
+            return { x, y, eq1: eq1.eq, eq2: eq2.eq };
+        };
+
+        const showProblem = () => {
+            destroyDynamic();
+            progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+            const { x: answerX, y: answerY, eq1, eq2 } = generateEquations();
+
+            // Display equations
+            const eq1Text = this.add.text(width / 2, 130, eq1, {
+                fontSize: '36px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            dynamicElements.push(eq1Text);
+
+            const eq2Text = this.add.text(width / 2, 180, eq2, {
+                fontSize: '36px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            dynamicElements.push(eq2Text);
+
+            // Input state
+            let selectedVar = 'x';
+            let inputX = '';
+            let inputY = '';
+
+            // Variable labels and input displays
+            const xLabel = this.add.text(width / 2 - 120, 240, 'x =', {
+                fontSize: '28px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffff44',
+            }).setOrigin(0.5);
+            dynamicElements.push(xLabel);
+
+            const xInputBg = this.add.rectangle(width / 2 - 40, 240, 80, 40, 0x6a6aaa)
+                .setInteractive({ useHandCursor: true });
+            dynamicElements.push(xInputBg);
+
+            const xInputText = this.add.text(width / 2 - 40, 240, '_', {
+                fontSize: '28px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            dynamicElements.push(xInputText);
+
+            const yLabel = this.add.text(width / 2 + 60, 240, 'y =', {
+                fontSize: '28px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#44ffff',
+            }).setOrigin(0.5);
+            dynamicElements.push(yLabel);
+
+            const yInputBg = this.add.rectangle(width / 2 + 140, 240, 80, 40, 0x4a4a6a)
+                .setInteractive({ useHandCursor: true });
+            dynamicElements.push(yInputBg);
+
+            const yInputText = this.add.text(width / 2 + 140, 240, '_', {
+                fontSize: '28px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            dynamicElements.push(yInputText);
+
+            const updateSelection = () => {
+                xInputBg.setFillStyle(selectedVar === 'x' ? 0x6a6aaa : 0x4a4a6a);
+                yInputBg.setFillStyle(selectedVar === 'y' ? 0x6a6aaa : 0x4a4a6a);
+                xLabel.setColor(selectedVar === 'x' ? '#ffff44' : '#888888');
+                yLabel.setColor(selectedVar === 'y' ? '#44ffff' : '#888888');
+            };
+
+            xInputBg.on('pointerdown', () => { selectedVar = 'x'; updateSelection(); });
+            yInputBg.on('pointerdown', () => { selectedVar = 'y'; updateSelection(); });
+
+            const updateInputDisplay = () => {
+                xInputText.setText(inputX || '_');
+                yInputText.setText(inputY || '_');
+            };
+
+            // Number buttons 0-20
+            const numCols = 7;
+            const btnSize = 52;
+            const btnGap = 8;
+            const numStartX = width / 2 - ((numCols - 1) * (btnSize + btnGap)) / 2;
+            const numStartY = 300;
+
+            for (let n = 0; n <= 20; n++) {
+                const col = n % numCols;
+                const row = Math.floor(n / numCols);
+                const bx = numStartX + col * (btnSize + btnGap);
+                const by = numStartY + row * (btnSize + btnGap);
+
+                const bg = this.add.rectangle(bx, by, btnSize, btnSize, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true });
+                dynamicElements.push(bg);
+
+                const txt = this.add.text(bx, by, `${n}`, {
+                    fontSize: '22px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                dynamicElements.push(txt);
+
+                bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                bg.on('pointerdown', () => {
+                    if (selectedVar === 'x') {
+                        inputX = `${n}`;
+                        selectedVar = 'y';
+                    } else {
+                        inputY = `${n}`;
+                    }
+                    updateInputDisplay();
+                    updateSelection();
+                });
+            }
+
+            // Submit button
+            const submitY = numStartY + Math.ceil(21 / numCols) * (btnSize + btnGap) + 20;
+            const submitBg = this.add.rectangle(width / 2, submitY, 160, 50, 0x44aa44)
+                .setInteractive({ useHandCursor: true });
+            dynamicElements.push(submitBg);
+
+            const submitText = this.add.text(width / 2, submitY, 'Submit', {
+                fontSize: '24px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            dynamicElements.push(submitText);
+
+            submitBg.on('pointerover', () => submitBg.setFillStyle(0x55cc55));
+            submitBg.on('pointerout', () => submitBg.setFillStyle(0x44aa44));
+
+            let feedbackText = null;
+
+            submitBg.on('pointerdown', () => {
+                if (inputX === '' || inputY === '') {
+                    if (feedbackText) feedbackText.destroy();
+                    feedbackText = this.add.text(width / 2, submitY + 50, 'Enter both x and y!', {
+                        fontSize: '20px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffaa44',
+                    }).setOrigin(0.5);
+                    dynamicElements.push(feedbackText);
+                    return;
+                }
+
+                const userX = parseInt(inputX, 10);
+                const userY = parseInt(inputY, 10);
+
+                if (userX === answerX && userY === answerY) {
+                    submitBg.setFillStyle(0x44dd44);
+                    submitBg.disableInteractive();
+
+                    if (feedbackText) feedbackText.destroy();
+                    feedbackText = this.add.text(width / 2, submitY + 50, `Correct! x=${answerX}, y=${answerY}`, {
+                        fontSize: '22px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#44dd44',
+                    }).setOrigin(0.5);
+                    dynamicElements.push(feedbackText);
+
+                    currentProblem++;
+                    if (currentProblem >= problems) {
+                        timerEvent.remove(false);
+                        this.mathCleanup = null;
+                        this.time.delayedCall(800, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    } else {
+                        this.time.delayedCall(800, () => {
+                            showProblem();
+                        });
+                    }
+                } else {
+                    if (feedbackText) feedbackText.destroy();
+                    feedbackText = this.add.text(width / 2, submitY + 50, 'Wrong! Try again.', {
+                        fontSize: '22px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ff4444',
+                    }).setOrigin(0.5);
+                    dynamicElements.push(feedbackText);
+
+                    // Reset inputs
+                    inputX = '';
+                    inputY = '';
+                    selectedVar = 'x';
+                    updateInputDisplay();
+                    updateSelection();
+                }
             });
         };
 
