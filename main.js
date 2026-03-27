@@ -108,7 +108,7 @@ const LevelRegistry = {
 };
 
 // ============================================================
-// BootScene - Loading screen
+// BootScene - Loading screen with animated loading bar
 // ============================================================
 class BootScene extends Phaser.Scene {
     constructor() {
@@ -118,27 +118,73 @@ class BootScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
-        this.add.text(width / 2, height / 2 - 40, 'Random Game', {
-            fontSize: '48px',
-            fontFamily: 'Arial, sans-serif',
+        // Game title with stylized look
+        const title = this.add.text(width / 2, height / 2 - 70, 'RANDOM GAME', {
+            fontSize: '56px',
+            fontFamily: 'Georgia, serif',
             color: '#ffffff',
-        }).setOrigin(0.5);
+            stroke: '#4a4a8a',
+            strokeThickness: 4,
+        }).setOrigin(0.5).setAlpha(0);
 
-        const loadingText = this.add.text(width / 2, height / 2 + 30, 'Loading...', {
-            fontSize: '24px',
+        // Fade in the title
+        this.tweens.add({
+            targets: title,
+            alpha: 1,
+            y: height / 2 - 60,
+            duration: 600,
+            ease: 'Power2',
+        });
+
+        // Loading bar background
+        const barWidth = 300;
+        const barHeight = 20;
+        const barX = width / 2 - barWidth / 2;
+        const barY = height / 2 + 20;
+
+        const barBg = this.add.graphics();
+        barBg.fillStyle(0x222244, 1);
+        barBg.fillRoundedRect(barX, barY, barWidth, barHeight, 10);
+        barBg.lineStyle(2, 0x6a6aaa, 1);
+        barBg.strokeRoundedRect(barX, barY, barWidth, barHeight, 10);
+
+        // Loading bar fill (animated)
+        const barFill = this.add.graphics();
+        const loadingText = this.add.text(width / 2, barY + barHeight + 20, 'Loading...', {
+            fontSize: '16px',
             fontFamily: 'Arial, sans-serif',
-            color: '#aaaaaa',
+            color: '#8888aa',
         }).setOrigin(0.5);
 
-        // Simulate a brief loading delay then go to menu
-        this.time.delayedCall(800, () => {
-            this.scene.start('MenuScene');
+        // Animate the loading bar over 1.2 seconds
+        let progress = 0;
+        this.tweens.addCounter({
+            from: 0,
+            to: 100,
+            duration: 1200,
+            ease: 'Power1',
+            onUpdate: (tween) => {
+                progress = tween.getValue() / 100;
+                barFill.clear();
+                barFill.fillStyle(0x6a6aff, 1);
+                const fillWidth = Math.max(0, (barWidth - 4) * progress);
+                if (fillWidth > 0) {
+                    barFill.fillRoundedRect(barX + 2, barY + 2, fillWidth, barHeight - 4, 8);
+                }
+                loadingText.setText(`Loading... ${Math.floor(progress * 100)}%`);
+            },
+            onComplete: () => {
+                loadingText.setText('Ready!');
+                this.time.delayedCall(300, () => {
+                    this.scene.start('MenuScene');
+                });
+            },
         });
     }
 }
 
 // ============================================================
-// MenuScene - Main menu with Start Game and Level Select
+// MenuScene - Main menu with animated background and styled buttons
 // ============================================================
 class MenuScene extends Phaser.Scene {
     constructor() {
@@ -148,29 +194,138 @@ class MenuScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
-        this.add.text(width / 2, 120, 'Random Game', {
-            fontSize: '52px',
-            fontFamily: 'Arial, sans-serif',
+        // Animated floating geometric shapes background
+        this.createFloatingShapes(width, height);
+
+        // Title with pulsing animation
+        const title = this.add.text(width / 2, 100, 'RANDOM GAME', {
+            fontSize: '58px',
+            fontFamily: 'Georgia, serif',
             color: '#ffffff',
-        }).setOrigin(0.5);
+            stroke: '#3a3a7a',
+            strokeThickness: 6,
+        }).setOrigin(0.5).setAlpha(0);
 
-        this.add.text(width / 2, 180, '100 Levels of Random Puzzles', {
-            fontSize: '18px',
+        // Fade in title
+        this.tweens.add({
+            targets: title,
+            alpha: 1,
+            duration: 500,
+            ease: 'Power2',
+        });
+
+        // Pulsing glow effect on title
+        this.tweens.add({
+            targets: title,
+            scaleX: 1.03,
+            scaleY: 1.03,
+            duration: 1500,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+        });
+
+        // Subtitle
+        const subtitle = this.add.text(width / 2, 165, 'A Puzzle Adventure \u2014 100 Levels', {
+            fontSize: '20px',
             fontFamily: 'Arial, sans-serif',
-            color: '#888888',
-        }).setOrigin(0.5);
+            color: '#9999bb',
+        }).setOrigin(0.5).setAlpha(0);
 
-        this.createButton(width / 2, 300, 'Start Game', () => {
+        this.tweens.add({
+            targets: subtitle,
+            alpha: 1,
+            duration: 600,
+            delay: 200,
+            ease: 'Power2',
+        });
+
+        // Styled buttons
+        this.createStyledButton(width / 2, 290, 'Start Game', 0x4a6aaa, 0x3a5a8a, () => {
             this.scene.start('GameScene', { level: 1 });
-        });
+        }, 300);
 
-        this.createButton(width / 2, 380, 'Level Select', () => {
+        this.createStyledButton(width / 2, 370, 'Level Select', 0x5a4a8a, 0x4a3a7a, () => {
             this.scene.start('LevelSelectScene');
-        });
+        }, 400);
+
+        // Version text
+        this.add.text(width - 15, height - 15, 'v1.0', {
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#555566',
+        }).setOrigin(1, 1);
     }
 
-    createButton(x, y, label, callback) {
-        const bg = this.add.rectangle(x, y, 240, 56, 0x4a4a8a)
+    createFloatingShapes(width, height) {
+        const shapes = [];
+        const colors = [0x4a4a8a, 0x6a4a8a, 0x4a6a8a, 0x8a6a4a, 0x4a8a6a];
+
+        for (let i = 0; i < 15; i++) {
+            const g = this.add.graphics();
+            const color = Phaser.Utils.Array.GetRandom(colors);
+            const alpha = Phaser.Math.FloatBetween(0.06, 0.15);
+            const size = Phaser.Math.Between(15, 50);
+            const shapeType = Phaser.Math.Between(0, 2);
+
+            g.fillStyle(color, alpha);
+
+            if (shapeType === 0) {
+                // Circle
+                g.fillCircle(0, 0, size);
+            } else if (shapeType === 1) {
+                // Square
+                g.fillRect(-size / 2, -size / 2, size, size);
+            } else {
+                // Triangle
+                g.fillTriangle(0, -size, -size, size, size, size);
+            }
+
+            const startX = Phaser.Math.Between(0, width);
+            const startY = Phaser.Math.Between(0, height);
+            g.setPosition(startX, startY);
+
+            // Slow drift in random direction
+            const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+            const speed = Phaser.Math.FloatBetween(15, 40);
+            const duration = Phaser.Math.Between(8000, 18000);
+
+            this.tweens.add({
+                targets: g,
+                x: startX + Math.cos(angle) * speed * 10,
+                y: startY + Math.sin(angle) * speed * 10,
+                alpha: { from: alpha, to: alpha * 0.3 },
+                duration: duration,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.easeInOut',
+            });
+
+            // Slow rotation for non-circles
+            if (shapeType !== 0) {
+                this.tweens.add({
+                    targets: g,
+                    rotation: Math.PI * 2,
+                    duration: Phaser.Math.Between(10000, 25000),
+                    repeat: -1,
+                    ease: 'Linear',
+                });
+            }
+
+            shapes.push(g);
+        }
+    }
+
+    createStyledButton(x, y, label, colorTop, colorBottom, callback, fadeDelay) {
+        const btnW = 260;
+        const btnH = 56;
+
+        // Button background with gradient-like effect (lighter top, darker bottom)
+        const bg = this.add.graphics();
+        this.drawButtonBg(bg, x, y, btnW, btnH, colorTop, colorBottom, 1);
+
+        // Hit area
+        const hitArea = this.add.rectangle(x, y, btnW, btnH, 0x000000, 0)
             .setInteractive({ useHandCursor: true });
 
         const text = this.add.text(x, y, label, {
@@ -179,16 +334,68 @@ class MenuScene extends Phaser.Scene {
             color: '#ffffff',
         }).setOrigin(0.5);
 
-        bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
-        bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
-        bg.on('pointerdown', callback);
+        // Container for scaling
+        const container = this.add.container(0, 0, [bg, hitArea, text]);
+        container.setAlpha(0);
 
-        return { bg, text };
+        this.tweens.add({
+            targets: container,
+            alpha: 1,
+            duration: 400,
+            delay: fadeDelay,
+            ease: 'Power2',
+        });
+
+        hitArea.on('pointerover', () => {
+            this.tweens.add({
+                targets: container,
+                scaleX: 1.06,
+                scaleY: 1.06,
+                duration: 150,
+                ease: 'Power2',
+            });
+            bg.clear();
+            this.drawButtonBg(bg, x, y, btnW, btnH, colorTop + 0x222222, colorBottom + 0x222222, 1);
+        });
+
+        hitArea.on('pointerout', () => {
+            this.tweens.add({
+                targets: container,
+                scaleX: 1,
+                scaleY: 1,
+                duration: 150,
+                ease: 'Power2',
+            });
+            bg.clear();
+            this.drawButtonBg(bg, x, y, btnW, btnH, colorTop, colorBottom, 1);
+        });
+
+        hitArea.on('pointerdown', callback);
+
+        return container;
+    }
+
+    drawButtonBg(graphics, x, y, w, h, colorTop, colorBottom, alpha) {
+        const left = x - w / 2;
+        const top = y - h / 2;
+        const radius = 12;
+
+        // Bottom half (darker)
+        graphics.fillStyle(colorBottom, alpha);
+        graphics.fillRoundedRect(left, top, w, h, radius);
+
+        // Top half (lighter) - draw over top portion
+        graphics.fillStyle(colorTop, alpha);
+        graphics.fillRoundedRect(left, top, w, h / 2 + 4, { tl: radius, tr: radius, bl: 0, br: 0 });
+
+        // Border
+        graphics.lineStyle(2, 0x8888bb, 0.4);
+        graphics.strokeRoundedRect(left, top, w, h, radius);
     }
 }
 
 // ============================================================
-// LevelSelectScene - 10x10 grid of level buttons
+// LevelSelectScene - 10x10 grid of styled level buttons with row labels
 // ============================================================
 class LevelSelectScene extends Phaser.Scene {
     constructor() {
@@ -198,55 +405,140 @@ class LevelSelectScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
-        this.add.text(width / 2, 30, 'Select a Level', {
-            fontSize: '32px',
-            fontFamily: 'Arial, sans-serif',
+        // Title
+        this.add.text(width / 2, 28, 'SELECT A LEVEL', {
+            fontSize: '30px',
+            fontFamily: 'Georgia, serif',
             color: '#ffffff',
+            stroke: '#3a3a7a',
+            strokeThickness: 3,
         }).setOrigin(0.5);
 
         const cols = 10;
         const rows = 10;
-        const btnSize = 52;
-        const padding = 6;
+        const btnSize = 48;
+        const padding = 5;
+        const labelWidth = 52;
         const gridWidth = cols * (btnSize + padding) - padding;
-        const gridHeight = rows * (btnSize + padding) - padding;
-        const startX = (width - gridWidth) / 2 + btnSize / 2;
-        const startY = 75;
+        const startX = (width - gridWidth) / 2 + btnSize / 2 + labelWidth / 2;
+        const startY = 62;
 
-        for (let i = 0; i < 100; i++) {
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            const x = startX + col * (btnSize + padding);
-            const y = startY + row * (btnSize + padding);
-            const levelNum = i + 1;
+        const rowColors = [
+            0x2a4a6a, 0x2a5a5a, 0x3a4a5a, 0x4a3a5a, 0x3a3a6a,
+            0x4a4a5a, 0x3a5a4a, 0x5a3a4a, 0x4a3a4a, 0x3a3a5a,
+        ];
 
-            const bg = this.add.rectangle(x, y, btnSize, btnSize, 0x3a3a6a)
-                .setInteractive({ useHandCursor: true });
+        for (let row = 0; row < rows; row++) {
+            // Row label (1-10, 11-20, etc.)
+            const rangeStart = row * 10 + 1;
+            const rangeEnd = row * 10 + 10;
+            const labelX = startX - btnSize / 2 - labelWidth / 2 - padding;
+            const labelY = startY + row * (btnSize + padding);
 
-            this.add.text(x, y, `${levelNum}`, {
-                fontSize: '16px',
+            this.add.text(labelX, labelY, `${rangeStart}-${rangeEnd}`, {
+                fontSize: '11px',
                 fontFamily: 'Arial, sans-serif',
-                color: '#ffffff',
+                color: '#667788',
             }).setOrigin(0.5);
 
-            bg.on('pointerover', () => bg.setFillStyle(0x5a5a9a));
-            bg.on('pointerout', () => bg.setFillStyle(0x3a3a6a));
-            bg.on('pointerdown', () => {
-                this.scene.start('GameScene', { level: levelNum });
-            });
+            for (let col = 0; col < cols; col++) {
+                const i = row * cols + col;
+                const x = startX + col * (btnSize + padding);
+                const y = startY + row * (btnSize + padding);
+                const levelNum = i + 1;
+
+                const baseColor = rowColors[row];
+
+                // Rounded button background using graphics
+                const bg = this.add.graphics();
+                bg.fillStyle(baseColor, 1);
+                bg.fillRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
+                bg.lineStyle(1, 0x6688aa, 0.3);
+                bg.strokeRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
+
+                const text = this.add.text(x, y, `${levelNum}`, {
+                    fontSize: '15px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ccddee',
+                }).setOrigin(0.5);
+
+                // Invisible hit area on top
+                const hitArea = this.add.rectangle(x, y, btnSize, btnSize, 0x000000, 0)
+                    .setInteractive({ useHandCursor: true });
+
+                const hoverColor = baseColor + 0x222222;
+
+                hitArea.on('pointerover', () => {
+                    bg.clear();
+                    bg.fillStyle(hoverColor, 1);
+                    bg.fillRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
+                    bg.lineStyle(2, 0x88aacc, 0.6);
+                    bg.strokeRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
+                    text.setColor('#ffffff');
+                    this.tweens.add({
+                        targets: [bg, text, hitArea],
+                        scaleX: 1.1,
+                        scaleY: 1.1,
+                        duration: 100,
+                        ease: 'Power2',
+                    });
+                });
+
+                hitArea.on('pointerout', () => {
+                    bg.clear();
+                    bg.fillStyle(baseColor, 1);
+                    bg.fillRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
+                    bg.lineStyle(1, 0x6688aa, 0.3);
+                    bg.strokeRoundedRect(x - btnSize / 2, y - btnSize / 2, btnSize, btnSize, 8);
+                    text.setColor('#ccddee');
+                    this.tweens.add({
+                        targets: [bg, text, hitArea],
+                        scaleX: 1,
+                        scaleY: 1,
+                        duration: 100,
+                        ease: 'Power2',
+                    });
+                });
+
+                hitArea.on('pointerdown', () => {
+                    this.scene.start('GameScene', { level: levelNum });
+                });
+            }
         }
 
-        // Back button
-        const backBg = this.add.rectangle(70, height - 30, 120, 36, 0x4a4a8a)
-            .setInteractive({ useHandCursor: true });
-        this.add.text(70, height - 30, 'Back', {
-            fontSize: '18px',
+        // Back button (styled)
+        const backX = 70;
+        const backY = height - 28;
+        const backBg = this.add.graphics();
+        backBg.fillStyle(0x4a4a7a, 1);
+        backBg.fillRoundedRect(backX - 55, backY - 17, 110, 34, 10);
+        backBg.lineStyle(1, 0x7777aa, 0.4);
+        backBg.strokeRoundedRect(backX - 55, backY - 17, 110, 34, 10);
+
+        const backText = this.add.text(backX, backY, '\u2190 Back', {
+            fontSize: '16px',
             fontFamily: 'Arial, sans-serif',
-            color: '#ffffff',
+            color: '#aabbcc',
         }).setOrigin(0.5);
-        backBg.on('pointerover', () => backBg.setFillStyle(0x6a6aaa));
-        backBg.on('pointerout', () => backBg.setFillStyle(0x4a4a8a));
-        backBg.on('pointerdown', () => this.scene.start('MenuScene'));
+
+        const backHit = this.add.rectangle(backX, backY, 110, 34, 0x000000, 0)
+            .setInteractive({ useHandCursor: true });
+
+        backHit.on('pointerover', () => {
+            backBg.clear();
+            backBg.fillStyle(0x6a6a9a, 1);
+            backBg.fillRoundedRect(backX - 55, backY - 17, 110, 34, 10);
+            backText.setColor('#ffffff');
+        });
+        backHit.on('pointerout', () => {
+            backBg.clear();
+            backBg.fillStyle(0x4a4a7a, 1);
+            backBg.fillRoundedRect(backX - 55, backY - 17, 110, 34, 10);
+            backBg.lineStyle(1, 0x7777aa, 0.4);
+            backBg.strokeRoundedRect(backX - 55, backY - 17, 110, 34, 10);
+            backText.setColor('#aabbcc');
+        });
+        backHit.on('pointerdown', () => this.scene.start('MenuScene'));
     }
 }
 
