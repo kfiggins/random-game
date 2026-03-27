@@ -10,6 +10,7 @@ const LevelRegistry = {
     3: { type: 'simon-says', config: { sequenceLength: 3, colors: 4, playbackSpeed: 800 } },
     4: { type: 'sorting', config: { count: 5, maxValue: 20 } },
     5: { type: 'maze', config: { width: 7, height: 7, cellSize: 60 } },
+    6: { type: 'pattern-complete', config: { patternLength: 6, numChoices: 4 } },
 };
 
 // ============================================================
@@ -189,6 +190,8 @@ class GameScene extends Phaser.Scene {
             this.createSortingPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'maze') {
             this.createMazePuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'pattern-complete') {
+            this.createPatternCompletePuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -865,6 +868,149 @@ class GameScene extends Phaser.Scene {
         this.input.keyboard.on('keydown-RIGHT', () => { if (!inputLocked) movePlayer(1, 0); });
         this.input.keyboard.on('keydown-UP', () => { if (!inputLocked) movePlayer(0, -1); });
         this.input.keyboard.on('keydown-DOWN', () => { if (!inputLocked) movePlayer(0, 1); });
+    }
+
+    createPatternCompletePuzzle(config) {
+        const { width, height } = this.scale;
+        const { patternLength, numChoices } = config;
+
+        const shapeDefs = [
+            { name: 'Circle', color: 0xff4444, colorName: 'Red' },
+            { name: 'Square', color: 0x4488ff, colorName: 'Blue' },
+            { name: 'Triangle', color: 0x44dd44, colorName: 'Green' },
+            { name: 'Diamond', color: 0xffdd44, colorName: 'Yellow' },
+        ];
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Complete the pattern! Pick the missing shape.', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Generate a repeating AB or ABC pattern
+        const patternTypes = [2, 3]; // AB or ABC
+        const patternLen = Phaser.Utils.Array.GetRandom(patternTypes);
+        const shuffledShapes = Phaser.Utils.Array.Shuffle([...shapeDefs]);
+        const patternShapes = shuffledShapes.slice(0, patternLen);
+
+        // Build the full sequence of patternLength items
+        const sequence = [];
+        for (let i = 0; i < patternLength; i++) {
+            sequence.push(patternShapes[i % patternLen]);
+        }
+
+        // The last one is the answer
+        const correctAnswer = sequence[patternLength - 1];
+
+        // Draw the pattern shapes
+        const shapeSize = 50;
+        const padding = 20;
+        const totalW = patternLength * shapeSize + (patternLength - 1) * padding;
+        const startX = (width - totalW) / 2 + shapeSize / 2;
+        const seqY = height / 2 - 60;
+
+        const drawShape = (x, y, shapeDef, size) => {
+            if (shapeDef.name === 'Circle') {
+                return this.add.circle(x, y, size / 2, shapeDef.color);
+            } else if (shapeDef.name === 'Square') {
+                return this.add.rectangle(x, y, size, size, shapeDef.color);
+            } else if (shapeDef.name === 'Triangle') {
+                const tri = this.add.triangle(x, y, 0, size, size / 2, 0, size, size, shapeDef.color);
+                return tri;
+            } else if (shapeDef.name === 'Diamond') {
+                const diamond = this.add.polygon(x, y, [
+                    0, -size / 2,
+                    size / 2, 0,
+                    0, size / 2,
+                    -size / 2, 0,
+                ], shapeDef.color);
+                return diamond;
+            }
+        };
+
+        // Draw sequence shapes (all but last)
+        for (let i = 0; i < patternLength - 1; i++) {
+            const x = startX + i * (shapeSize + padding);
+            drawShape(x, seqY, sequence[i], shapeSize);
+        }
+
+        // Draw the '?' placeholder for the last position
+        const lastX = startX + (patternLength - 1) * (shapeSize + padding);
+        const placeholder = this.add.rectangle(lastX, seqY, shapeSize, shapeSize, 0x3a3a6a);
+        const questionMark = this.add.text(lastX, seqY, '?', {
+            fontSize: '36px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#888888',
+        }).setOrigin(0.5);
+
+        // Draw choice buttons below
+        const choiceY = height / 2 + 60;
+        const choiceSize = 60;
+        const choicePadding = 30;
+        const choiceTotalW = numChoices * choiceSize + (numChoices - 1) * choicePadding;
+        const choiceStartX = (width - choiceTotalW) / 2 + choiceSize / 2;
+
+        // Build choices: correct answer + random others
+        const otherShapes = shapeDefs.filter(s => s.name !== correctAnswer.name);
+        Phaser.Utils.Array.Shuffle(otherShapes);
+        const choices = [correctAnswer, ...otherShapes.slice(0, numChoices - 1)];
+        Phaser.Utils.Array.Shuffle(choices);
+
+        const feedbackText = this.add.text(width / 2, choiceY + 70, '', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        let solved = false;
+
+        choices.forEach((shapeDef, i) => {
+            const cx = choiceStartX + i * (choiceSize + choicePadding);
+
+            // Clickable background
+            const bg = this.add.rectangle(cx, choiceY, choiceSize + 10, choiceSize + 10, 0x2a2a4a)
+                .setInteractive({ useHandCursor: true });
+
+            drawShape(cx, choiceY, shapeDef, choiceSize - 10);
+
+            // Label below
+            this.add.text(cx, choiceY + choiceSize / 2 + 12, shapeDef.colorName, {
+                fontSize: '12px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => {
+                if (!solved) bg.setFillStyle(0x4a4a6a);
+            });
+            bg.on('pointerout', () => {
+                if (!solved) bg.setFillStyle(0x2a2a4a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (solved) return;
+
+                if (shapeDef.name === correctAnswer.name) {
+                    // Correct
+                    solved = true;
+                    placeholder.setVisible(false);
+                    questionMark.setVisible(false);
+                    drawShape(lastX, seqY, correctAnswer, shapeSize);
+                    feedbackText.setText('Correct!').setColor('#44dd44');
+                    this.time.delayedCall(500, () => {
+                        this.scene.start('LevelCompleteScene', { level: this.level });
+                    });
+                } else {
+                    // Wrong - flash red
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Try again.');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x2a2a4a);
+                    });
+                }
+            });
+        });
     }
 
     handleTimeUp() {
