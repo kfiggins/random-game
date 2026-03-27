@@ -79,6 +79,7 @@ const LevelRegistry = {
     72: { type: 'sliding-puzzle', config: { size: 5, useImage: true, timeLimit: 180 } },
     73: { type: 'memory-cards', config: { rows: 6, cols: 8, timeLimit: 30, reshuffleAfter: 1, flipBackSpeed: 250, blackout: true, fakeCards: 4 } },
     74: { type: 'maze', config: { width: 31, height: 31, cellSize: 18, fogOfWar: true, viewRadius: 2, enemies: 7, traps: 8, timeLimit: 90, hasKeys: true, keys: 4, teleporters: 2 } },
+    75: { type: 'light-toggle', config: { size: 8, randomize: true, lockedCells: 10, chainReaction: true } },
 };
 
 // ============================================================
@@ -7759,7 +7760,7 @@ class GameScene extends Phaser.Scene {
 
     createLightTogglePuzzle(config) {
         const { width, height } = this.scale;
-        const { size, lockedCells: numLocked } = config;
+        const { size, lockedCells: numLocked, chainReaction } = config;
 
         // Instructions
         this.add.text(width / 2, 70, 'Turn ALL lights ON!', {
@@ -7768,7 +7769,9 @@ class GameScene extends Phaser.Scene {
             color: '#aaaaaa',
         }).setOrigin(0.5);
 
-        const instrDetail = numLocked
+        const instrDetail = chainReaction
+            ? 'Toggles cascade! If a neighbor was ON before toggling, it cascades further.'
+            : numLocked
             ? 'Clicking a cell toggles it and its neighbors. Locked cells cannot be clicked.'
             : 'Clicking a cell toggles it and its neighbors';
         this.add.text(width / 2, 95, instrDetail, {
@@ -7810,16 +7813,44 @@ class GameScene extends Phaser.Scene {
                 if (!isLocked(r, c)) clickable.push([r, c]);
             }
         }
+
+        // Helper: simulate a click at (cr, cc) on the grid (used for setup and chain reaction)
+        const simulateClick = (cr, cc) => {
+            const toggles = [[cr, cc], [cr - 1, cc], [cr + 1, cc], [cr, cc - 1], [cr, cc + 1]];
+            if (chainReaction) {
+                const visited = new Set();
+                const queue = [...toggles];
+                while (queue.length > 0) {
+                    const [tr, tc] = queue.shift();
+                    if (tr < 0 || tr >= size || tc < 0 || tc >= size) continue;
+                    const key = `${tr},${tc}`;
+                    if (visited.has(key)) continue;
+                    visited.add(key);
+                    const wasOn = grid[tr][tc];
+                    grid[tr][tc] = !grid[tr][tc];
+                    if (wasOn && !(tr === cr && tc === cc)) {
+                        const neighbors = [[tr - 1, tc], [tr + 1, tc], [tr, tc - 1], [tr, tc + 1]];
+                        neighbors.forEach(([nr, nc]) => {
+                            if (nr >= 0 && nr < size && nc >= 0 && nc < size && !visited.has(`${nr},${nc}`)) {
+                                queue.push([nr, nc]);
+                            }
+                        });
+                    }
+                }
+            } else {
+                toggles.forEach(([tr, tc]) => {
+                    if (tr >= 0 && tr < size && tc >= 0 && tc < size) {
+                        grid[tr][tc] = !grid[tr][tc];
+                    }
+                });
+            }
+        };
+
         const numToggles = Phaser.Math.Between(3, clickable.length);
         for (let t = 0; t < numToggles; t++) {
             const idx = Phaser.Math.Between(0, clickable.length - 1);
             const [tr, tc] = clickable[idx];
-            // Toggle cell and neighbors
-            grid[tr][tc] = !grid[tr][tc];
-            if (tr > 0) grid[tr - 1][tc] = !grid[tr - 1][tc];
-            if (tr < size - 1) grid[tr + 1][tc] = !grid[tr + 1][tc];
-            if (tc > 0) grid[tr][tc - 1] = !grid[tr][tc - 1];
-            if (tc < size - 1) grid[tr][tc + 1] = !grid[tr][tc + 1];
+            simulateClick(tr, tc);
         }
 
         // If all are already on after randomization, do one more toggle
@@ -7827,11 +7858,7 @@ class GameScene extends Phaser.Scene {
         if (allOn()) {
             const idx = Phaser.Math.Between(0, clickable.length - 1);
             const [mr, mc] = clickable[idx];
-            grid[mr][mc] = !grid[mr][mc];
-            if (mr > 0) grid[mr - 1][mc] = !grid[mr - 1][mc];
-            if (mr < size - 1) grid[mr + 1][mc] = !grid[mr + 1][mc];
-            if (mc > 0) grid[mr][mc - 1] = !grid[mr][mc - 1];
-            if (mc < size - 1) grid[mr][mc + 1] = !grid[mr][mc + 1];
+            simulateClick(mr, mc);
         }
 
         let moves = 0;
@@ -7896,12 +7923,38 @@ class GameScene extends Phaser.Scene {
 
                         // Toggle this cell and orthogonal neighbors
                         const toggles = [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
-                        toggles.forEach(([tr, tc]) => {
-                            if (tr >= 0 && tr < size && tc >= 0 && tc < size) {
+                        if (chainReaction) {
+                            // Chain reaction: track which cells to process
+                            const visited = new Set();
+                            const queue = [...toggles];
+                            while (queue.length > 0) {
+                                const [tr, tc] = queue.shift();
+                                if (tr < 0 || tr >= size || tc < 0 || tc >= size) continue;
+                                const key = `${tr},${tc}`;
+                                if (visited.has(key)) continue;
+                                visited.add(key);
+                                const wasOn = grid[tr][tc];
                                 grid[tr][tc] = !grid[tr][tc];
                                 updateCell(tr, tc);
+                                // If this neighbor was ON (target state) before being toggled,
+                                // cascade to its neighbors
+                                if (wasOn && !(tr === r && tc === c)) {
+                                    const neighbors = [[tr - 1, tc], [tr + 1, tc], [tr, tc - 1], [tr, tc + 1]];
+                                    neighbors.forEach(([nr, nc]) => {
+                                        if (nr >= 0 && nr < size && nc >= 0 && nc < size && !visited.has(`${nr},${nc}`)) {
+                                            queue.push([nr, nc]);
+                                        }
+                                    });
+                                }
                             }
-                        });
+                        } else {
+                            toggles.forEach(([tr, tc]) => {
+                                if (tr >= 0 && tr < size && tc >= 0 && tc < size) {
+                                    grid[tr][tc] = !grid[tr][tc];
+                                    updateCell(tr, tc);
+                                }
+                            });
+                        }
 
                         moves++;
                         moveText.setText(`Moves: ${moves}`);
