@@ -73,6 +73,7 @@ const LevelRegistry = {
     66: { type: 'pattern-complete', config: { patternLength: 16, numChoices: 8, is2D: true, fractal: true } },
     67: { type: 'word-scramble', config: { mode: 'crossword', words: 4 } },
     68: { type: 'math', config: { problems: 3, mode: 'equation-builder', timeLimit: 90 } },
+    69: { type: 'color-chain', config: { gridSize: 10, colors: 12, fillBoard: true, timeLimit: 180 } },
 };
 
 // ============================================================
@@ -7088,7 +7089,7 @@ class GameScene extends Phaser.Scene {
 
     createColorChainPuzzle(config) {
         const { width, height } = this.scale;
-        const { gridSize, colors, fillBoard } = config;
+        const { gridSize, colors, fillBoard, timeLimit } = config;
 
         // Instructions
         const instrText = fillBoard
@@ -7106,10 +7107,39 @@ class GameScene extends Phaser.Scene {
             color: '#666666',
         }).setOrigin(0.5);
 
-        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa, 0x88ff44, 0xffd700];
+        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa, 0x88ff44, 0xffd700, 0xff6b6b, 0x5555ff];
         let colorValues, endpoints;
 
-        if (gridSize === 9 && colors === 10 && fillBoard) {
+        if (gridSize === 10 && colors === 12 && fillBoard) {
+            // Hardcoded solvable 10x10 puzzle with 12 color pairs that fills all 100 cells
+            // Path 0  (red):    (0,0)→(0,1)→(0,2)→(0,3)→(0,4)→(0,5)→(0,6)→(0,7)→(0,8)→(0,9)
+            // Path 1  (green):  (1,9)→(1,8)→(1,7)→(1,6)→(1,5)→(1,4)→(1,3)→(1,2)
+            // Path 2  (blue):   (1,1)→(1,0)→(2,0)→(2,1)→(2,2)→(2,3)→(2,4)→(2,5)
+            // Path 3  (yellow): (2,6)→(2,7)→(2,8)→(2,9)→(3,9)→(3,8)→(3,7)→(3,6)
+            // Path 4  (purple): (3,5)→(3,4)→(3,3)→(3,2)→(3,1)→(3,0)→(4,0)→(4,1)
+            // Path 5  (orange): (4,2)→(4,3)→(4,4)→(4,5)→(4,6)→(4,7)→(4,8)→(4,9)
+            // Path 6  (cyan):   (5,9)→(5,8)→(5,7)→(5,6)→(5,5)→(5,4)→(5,3)→(5,2)
+            // Path 7  (pink):   (5,1)→(5,0)→(6,0)→(6,1)→(6,2)→(6,3)→(6,4)→(6,5)
+            // Path 8  (lime):   (6,6)→(6,7)→(6,8)→(6,9)→(7,9)→(7,8)→(7,7)→(7,6)
+            // Path 9  (gold):   (7,5)→(7,4)→(7,3)→(7,2)→(7,1)→(7,0)→(8,0)→(8,1)
+            // Path 10 (coral):  (8,2)→(8,3)→(8,4)→(8,5)→(8,6)→(8,7)→(8,8)→(8,9)
+            // Path 11 (indigo): (9,9)→(9,8)→(9,7)→(9,6)→(9,5)→(9,4)→(9,3)→(9,2)→(9,1)→(9,0)
+            colorValues = allColorValues.slice(0, 12);
+            endpoints = [
+                { color: 0,  start: { r: 0, c: 0 }, end: { r: 0, c: 9 } },
+                { color: 1,  start: { r: 1, c: 9 }, end: { r: 1, c: 2 } },
+                { color: 2,  start: { r: 1, c: 1 }, end: { r: 2, c: 5 } },
+                { color: 3,  start: { r: 2, c: 6 }, end: { r: 3, c: 6 } },
+                { color: 4,  start: { r: 3, c: 5 }, end: { r: 4, c: 1 } },
+                { color: 5,  start: { r: 4, c: 2 }, end: { r: 4, c: 9 } },
+                { color: 6,  start: { r: 5, c: 9 }, end: { r: 5, c: 2 } },
+                { color: 7,  start: { r: 5, c: 1 }, end: { r: 6, c: 5 } },
+                { color: 8,  start: { r: 6, c: 6 }, end: { r: 7, c: 6 } },
+                { color: 9,  start: { r: 7, c: 5 }, end: { r: 8, c: 1 } },
+                { color: 10, start: { r: 8, c: 2 }, end: { r: 8, c: 9 } },
+                { color: 11, start: { r: 9, c: 9 }, end: { r: 9, c: 0 } },
+            ];
+        } else if (gridSize === 9 && colors === 10 && fillBoard) {
             // Hardcoded solvable 9x9 puzzle with 10 color pairs that fills all 81 cells
             // Path 0 (red):    (0,0)→(1,0)→(2,0)→(2,1)→(1,1)→(0,1)→(0,2)→(0,3)
             // Path 1 (green):  (1,2)→(1,3)→(1,4)→(0,4)→(0,5)→(0,6)→(1,6)→(1,5)
@@ -7249,6 +7279,33 @@ class GameScene extends Phaser.Scene {
                 fontFamily: 'Arial, sans-serif',
                 color: '#ffdd44',
             }).setOrigin(0.5);
+        }
+
+        // Timer (if timeLimit is set)
+        let timerEvent = null;
+        if (timeLimit) {
+            let timeLeft = timeLimit;
+            const timerY = infoBase + infoGap * (fillBoard ? 3 : 2);
+            const timerText = this.add.text(width / 2, timerY, `Time: ${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}`, {
+                fontSize: gridSize <= 7 ? '16px' : '14px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            timerEvent = this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}`);
+                    if (timeLeft <= 10) {
+                        timerText.setColor('#ff4444');
+                    }
+                    if (timeLeft <= 0) {
+                        this.handleTimeUp();
+                    }
+                },
+            });
         }
 
         const isAdjacent = (r1, c1, r2, c2) => {
@@ -7458,6 +7515,7 @@ class GameScene extends Phaser.Scene {
                                     }
                                 }
                                 solved = true;
+                                if (timerEvent) timerEvent.remove(false);
                                 statusText.setText(fillBoard ? 'Board filled — all connected!' : 'All pairs connected!').setColor('#44dd44');
                                 this.time.delayedCall(1000, () => {
                                     this.scene.start('LevelCompleteScene', { level: this.level });
