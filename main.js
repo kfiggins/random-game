@@ -12,6 +12,7 @@ const LevelRegistry = {
     5: { type: 'maze', config: { width: 7, height: 7, cellSize: 60 } },
     6: { type: 'pattern-complete', config: { patternLength: 6, numChoices: 4 } },
     7: { type: 'reaction-time', config: { targets: 5, targetSize: 50, stayTime: 2500, timeLimit: 15 } },
+    8: { type: 'math', config: { problems: 3, operations: ['add'], maxNum: 10, timeLimit: 30 } },
 };
 
 // ============================================================
@@ -195,6 +196,8 @@ class GameScene extends Phaser.Scene {
             this.createPatternCompletePuzzle(levelData.config);
         } else if (levelData && levelData.type === 'reaction-time') {
             this.createReactionTimePuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'math') {
+            this.createMathPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -1173,6 +1176,166 @@ class GameScene extends Phaser.Scene {
         };
     }
 
+    createMathPuzzle(config) {
+        const { width, height } = this.scale;
+        const { problems, operations, maxNum, timeLimit } = config;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Solve the math problems!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2 + 200, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.mathCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.mathCleanup = () => {
+            timerEvent.remove(false);
+        };
+
+        let currentProblem = 0;
+
+        // Progress text
+        const progressText = this.add.text(width / 2 - 200, height - 80, `Problem 1/${problems}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Containers for dynamic elements
+        let problemText = null;
+        let choiceButtons = [];
+        let feedbackText = null;
+
+        const showProblem = () => {
+            // Clean up previous
+            if (problemText) problemText.destroy();
+            choiceButtons.forEach(b => { b.bg.destroy(); b.text.destroy(); });
+            choiceButtons = [];
+            if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
+
+            progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+            // Generate two random numbers
+            const a = Phaser.Math.Between(1, maxNum - 1);
+            const b_val = Phaser.Math.Between(1, maxNum - a);
+            const op = Phaser.Utils.Array.GetRandom(operations);
+
+            let answer;
+            let symbol;
+            if (op === 'add') {
+                answer = a + b_val;
+                symbol = '+';
+            }
+
+            // Display problem
+            problemText = this.add.text(width / 2, height / 2 - 80, `${a} ${symbol} ${b_val} = ?`, {
+                fontSize: '48px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            // Generate wrong answers within +/-5 of correct, all unique and > 0
+            const wrongSet = new Set();
+            while (wrongSet.size < 3) {
+                const offset = Phaser.Math.Between(-5, 5);
+                const wrong = answer + offset;
+                if (wrong !== answer && wrong > 0) {
+                    wrongSet.add(wrong);
+                }
+            }
+
+            const choices = Phaser.Utils.Array.Shuffle([answer, ...wrongSet]);
+
+            // Create 4 choice buttons in a row
+            const btnWidth = 120;
+            const btnSpacing = 140;
+            const startX = width / 2 - (btnSpacing * 1.5);
+            const btnY = height / 2 + 40;
+
+            choices.forEach((choice, i) => {
+                const bx = startX + i * btnSpacing;
+                const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true });
+                const txt = this.add.text(bx, btnY, `${choice}`, {
+                    fontSize: '28px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                bg.on('pointerdown', () => {
+                    if (choice === answer) {
+                        // Correct - green flash
+                        bg.setFillStyle(0x44dd44);
+                        // Disable all buttons
+                        choiceButtons.forEach(b => b.bg.disableInteractive());
+
+                        if (feedbackText) feedbackText.destroy();
+                        feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                            fontSize: '24px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#44dd44',
+                        }).setOrigin(0.5);
+
+                        currentProblem++;
+                        if (currentProblem >= problems) {
+                            // All done
+                            timerEvent.remove(false);
+                            this.mathCleanup = null;
+                            this.time.delayedCall(800, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
+                        } else {
+                            this.time.delayedCall(800, () => {
+                                showProblem();
+                            });
+                        }
+                    } else {
+                        // Wrong - red flash, try again
+                        bg.setFillStyle(0xff4444);
+                        bg.disableInteractive();
+
+                        if (feedbackText) feedbackText.destroy();
+                        feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                            fontSize: '24px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#ff4444',
+                        }).setOrigin(0.5);
+                    }
+                });
+
+                choiceButtons.push({ bg, text: txt });
+            });
+        };
+
+        showProblem();
+    }
+
     handleReactionTimeEnd(score, totalTargets) {
         const { width, height } = this.scale;
         const requiredScore = 3;
@@ -1219,6 +1382,7 @@ class GameScene extends Phaser.Scene {
 
         if (this.colorMatchCleanup) this.colorMatchCleanup();
         if (this.reactionTimeCleanup) this.reactionTimeCleanup();
+        if (this.mathCleanup) this.mathCleanup();
 
         // Disable all interactive objects
         this.children.list.forEach(child => {
