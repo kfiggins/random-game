@@ -17,6 +17,7 @@ const LevelRegistry = {
     10: { type: 'spot-difference', config: { differences: 2, gridSize: 5 } },
     11: { type: 'color-match', config: { pairs: 5, colors: 6, timeLimit: 30 } },
     12: { type: 'memory-cards', config: { rows: 3, cols: 4, timeLimit: 0 } },
+    13: { type: 'simon-says', config: { sequenceLength: 5, colors: 4, playbackSpeed: 600 } },
 };
 
 // ============================================================
