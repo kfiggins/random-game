@@ -26,6 +26,7 @@ const LevelRegistry = {
     19: { type: 'word-scramble', config: { wordLength: 6, showHint: false } },
     20: { type: 'light-toggle', config: { size: 3, randomize: true } },
     21: { type: 'memory-cards', config: { rows: 4, cols: 4, timeLimit: 45 } },
+    22: { type: 'color-chain', config: { gridSize: 5, colors: 3 } },
 };
 
 // ============================================================
@@ -221,6 +222,8 @@ class GameScene extends Phaser.Scene {
             this.createSequenceLogicPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'light-toggle') {
             this.createLightTogglePuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'color-chain') {
+            this.createColorChainPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -2190,6 +2193,288 @@ class GameScene extends Phaser.Scene {
                         this.time.delayedCall(800, () => {
                             this.scene.start('LevelCompleteScene', { level: this.level });
                         });
+                    }
+                });
+            }
+        }
+    }
+
+    createColorChainPuzzle(config) {
+        const { width, height } = this.scale;
+        const { gridSize, colors } = config;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Connect matching colored dots!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 95, 'Click a dot to start, then click adjacent cells. Click a path to clear it.', {
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#666666',
+        }).setOrigin(0.5);
+
+        // Hardcoded solvable puzzle for 5x5 with 3 color pairs
+        // Color 0 (red): (0,0) -> (2,2)
+        // Color 1 (green): (0,4) -> (4,0)
+        // Color 2 (blue): (4,4) -> (2,0)
+        const colorValues = [0xff4444, 0x44dd44, 0x4488ff];
+        const endpoints = [
+            { color: 0, start: { r: 0, c: 0 }, end: { r: 2, c: 2 } },
+            { color: 1, start: { r: 0, c: 4 }, end: { r: 4, c: 0 } },
+            { color: 2, start: { r: 4, c: 4 }, end: { r: 2, c: 0 } },
+        ];
+
+        // Build endpoint lookup: grid[r][c] -> color index, or -1
+        const endpointMap = [];
+        for (let r = 0; r < gridSize; r++) {
+            endpointMap[r] = [];
+            for (let c = 0; c < gridSize; c++) {
+                endpointMap[r][c] = -1;
+            }
+        }
+        endpoints.forEach(ep => {
+            endpointMap[ep.start.r][ep.start.c] = ep.color;
+            endpointMap[ep.end.r][ep.end.c] = ep.color;
+        });
+
+        // Paths: paths[colorIndex] = [{r, c}, ...]
+        const paths = [];
+        for (let i = 0; i < colors; i++) {
+            paths[i] = [];
+        }
+
+        // Track which color occupies each cell: -1 = empty
+        const cellOwner = [];
+        for (let r = 0; r < gridSize; r++) {
+            cellOwner[r] = [];
+            for (let c = 0; c < gridSize; c++) {
+                cellOwner[r][c] = -1;
+            }
+        }
+
+        let activeColor = -1; // Currently drawing color
+        let solved = false;
+
+        // Drawing
+        const cellSize = 70;
+        const gap = 4;
+        const totalSize = gridSize * cellSize + (gridSize - 1) * gap;
+        const startX = (width - totalSize) / 2 + cellSize / 2;
+        const startY = 140 + cellSize / 2;
+
+        const cellGraphics = [];
+        const dotGraphics = [];
+        const pathGraphicsGroup = this.add.group();
+
+        // Status text
+        const statusText = this.add.text(width / 2, startY + totalSize + 20, '', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const pairsText = this.add.text(width / 2, startY + totalSize + 45, 'Pairs connected: 0 / ' + colors, {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const isAdjacent = (r1, c1, r2, c2) => {
+            return (Math.abs(r1 - r2) + Math.abs(c1 - c2)) === 1;
+        };
+
+        const countConnected = () => {
+            let count = 0;
+            endpoints.forEach(ep => {
+                const path = paths[ep.color];
+                if (path.length >= 2) {
+                    const first = path[0];
+                    const last = path[path.length - 1];
+                    const startsAtEndpoint = (first.r === ep.start.r && first.c === ep.start.c) || (first.r === ep.end.r && first.c === ep.end.c);
+                    const endsAtEndpoint = (last.r === ep.start.r && last.c === ep.start.c) || (last.r === ep.end.r && last.c === ep.end.c);
+                    if (startsAtEndpoint && endsAtEndpoint && !(first.r === last.r && first.c === last.c)) {
+                        count++;
+                    }
+                }
+            });
+            return count;
+        };
+
+        const clearPath = (colorIdx) => {
+            paths[colorIdx].forEach(p => {
+                if (endpointMap[p.r][p.c] === -1) {
+                    cellOwner[p.r][p.c] = -1;
+                }
+            });
+            // Keep endpoints owned
+            paths[colorIdx] = [];
+            // Clear endpoint ownership too
+            endpoints[colorIdx] && (() => {
+                const ep = endpoints[colorIdx];
+                cellOwner[ep.start.r][ep.start.c] = -1;
+                cellOwner[ep.end.r][ep.end.c] = -1;
+            })();
+        };
+
+        const redrawGrid = () => {
+            // Clear path graphics
+            pathGraphicsGroup.clear(true, true);
+
+            // Reset cell backgrounds
+            for (let r = 0; r < gridSize; r++) {
+                for (let c = 0; c < gridSize; c++) {
+                    if (cellOwner[r][c] >= 0 && endpointMap[r][c] === -1) {
+                        cellGraphics[r][c].setFillStyle(Phaser.Display.Color.GetColor(
+                            (colorValues[cellOwner[r][c]] >> 16) & 0xff,
+                            (colorValues[cellOwner[r][c]] >> 8) & 0xff,
+                            colorValues[cellOwner[r][c]] & 0xff
+                        ), 0.3);
+                    } else if (endpointMap[r][c] === -1) {
+                        cellGraphics[r][c].setFillStyle(0x2a2a4a);
+                    }
+                }
+            }
+
+            // Draw path lines
+            for (let ci = 0; ci < colors; ci++) {
+                const path = paths[ci];
+                if (path.length >= 2) {
+                    for (let i = 0; i < path.length - 1; i++) {
+                        const x1 = startX + path[i].c * (cellSize + gap);
+                        const y1 = startY + path[i].r * (cellSize + gap);
+                        const x2 = startX + path[i + 1].c * (cellSize + gap);
+                        const y2 = startY + path[i + 1].r * (cellSize + gap);
+
+                        const line = this.add.rectangle(
+                            (x1 + x2) / 2, (y1 + y2) / 2,
+                            x1 === x2 ? 8 : Math.abs(x2 - x1) + 8,
+                            y1 === y2 ? 8 : Math.abs(y2 - y1) + 8,
+                            colorValues[ci]
+                        ).setAlpha(0.7);
+                        pathGraphicsGroup.add(line);
+                    }
+                }
+            }
+
+            const connected = countConnected();
+            pairsText.setText('Pairs connected: ' + connected + ' / ' + colors);
+        };
+
+        // Create grid cells
+        for (let r = 0; r < gridSize; r++) {
+            cellGraphics[r] = [];
+            dotGraphics[r] = [];
+            for (let c = 0; c < gridSize; c++) {
+                const x = startX + c * (cellSize + gap);
+                const y = startY + r * (cellSize + gap);
+
+                const cell = this.add.rectangle(x, y, cellSize, cellSize, 0x2a2a4a)
+                    .setStrokeStyle(1, 0x444466)
+                    .setInteractive({ useHandCursor: true });
+
+                cellGraphics[r][c] = cell;
+
+                // Draw endpoint dots
+                if (endpointMap[r][c] >= 0) {
+                    const dot = this.add.circle(x, y, 18, colorValues[endpointMap[r][c]])
+                        .setStrokeStyle(2, 0xffffff);
+                    dotGraphics[r][c] = dot;
+                }
+
+                cell.on('pointerdown', () => {
+                    if (solved) return;
+
+                    const ep = endpointMap[r][c];
+                    const owner = cellOwner[r][c];
+
+                    // If clicking on a cell that has a path through it, clear that path
+                    if (activeColor === -1 && owner >= 0 && ep === -1) {
+                        clearPath(owner);
+                        redrawGrid();
+                        statusText.setText('Path cleared. Click a dot to start.');
+                        return;
+                    }
+
+                    // If clicking an endpoint with an existing path, clear it to restart
+                    if (activeColor === -1 && ep >= 0 && paths[ep].length > 0) {
+                        clearPath(ep);
+                        redrawGrid();
+                        // Start new path from this endpoint
+                        activeColor = ep;
+                        paths[ep] = [{ r, c }];
+                        cellOwner[r][c] = ep;
+                        statusText.setText('Drawing... click adjacent cells.');
+                        return;
+                    }
+
+                    // If no active color and clicking an endpoint, start drawing
+                    if (activeColor === -1 && ep >= 0) {
+                        activeColor = ep;
+                        paths[ep] = [{ r, c }];
+                        cellOwner[r][c] = ep;
+                        statusText.setText('Drawing... click adjacent cells.');
+                        return;
+                    }
+
+                    // If active and clicking...
+                    if (activeColor >= 0) {
+                        const path = paths[activeColor];
+                        const last = path[path.length - 1];
+
+                        // Must be adjacent
+                        if (!isAdjacent(last.r, last.c, r, c)) {
+                            statusText.setText('Must click an adjacent cell!');
+                            return;
+                        }
+
+                        // If clicking the previous cell in path, undo last step
+                        if (path.length >= 2 && path[path.length - 2].r === r && path[path.length - 2].c === c) {
+                            const removed = path.pop();
+                            if (endpointMap[removed.r][removed.c] === -1) {
+                                cellOwner[removed.r][removed.c] = -1;
+                            }
+                            redrawGrid();
+                            return;
+                        }
+
+                        // Can't cross other paths or revisit own path
+                        if (cellOwner[r][c] >= 0 && !(endpointMap[r][c] === activeColor && path.length >= 1)) {
+                            statusText.setText('Paths cannot cross!');
+                            return;
+                        }
+
+                        // If it's already in our own path (not the matching endpoint), block
+                        if (cellOwner[r][c] === activeColor && endpointMap[r][c] !== activeColor) {
+                            statusText.setText('Cannot revisit own path!');
+                            return;
+                        }
+
+                        // If reaching the other endpoint of the same color, complete this path
+                        if (endpointMap[r][c] === activeColor) {
+                            path.push({ r, c });
+                            cellOwner[r][c] = activeColor;
+                            activeColor = -1;
+                            statusText.setText('Path connected!');
+                            redrawGrid();
+
+                            // Check win
+                            if (countConnected() === colors) {
+                                solved = true;
+                                statusText.setText('All pairs connected!').setColor('#44dd44');
+                                this.time.delayedCall(1000, () => {
+                                    this.scene.start('LevelCompleteScene', { level: this.level });
+                                });
+                            }
+                            return;
+                        }
+
+                        // Normal empty cell
+                        path.push({ r, c });
+                        cellOwner[r][c] = activeColor;
+                        redrawGrid();
                     }
                 });
             }
