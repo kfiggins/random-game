@@ -69,6 +69,7 @@ const LevelRegistry = {
     62: { type: 'sorting', config: { count: 10, maxValue: 200, adjacentOnly: true, maxSwaps: 25, blind: true } },
     63: { type: 'maze', config: { width: 27, height: 27, cellSize: 20, fogOfWar: true, viewRadius: 2, enemies: 5, traps: 6, timeLimit: 120, hasKeys: true, keys: 3 } },
     64: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, interleaved: true, rules: 3 } },
+    65: { type: 'reaction-time', config: { targets: 15, targetSize: 20, stayTime: 1200, timeLimit: 20, hasDecoys: true, moving: true, shrinking: true } },
 };
 
 // ============================================================
@@ -2273,13 +2274,15 @@ class GameScene extends Phaser.Scene {
 
     createReactionTimePuzzle(config) {
         const { width, height } = this.scale;
-        const { targets, targetSize, stayTime, timeLimit, hasDecoys, moving } = config;
+        const { targets, targetSize, stayTime, timeLimit, hasDecoys, moving, shrinking } = config;
 
         const targetColors = [0x44dd44, 0x4488ff, 0xffdd44, 0xff44ff, 0x44dddd];
-        const requiredScore = moving ? 8 : (hasDecoys ? 5 : 3);
+        const requiredScore = shrinking ? 10 : (moving ? 8 : (hasDecoys ? 5 : 3));
 
         // Instructions
-        const instructions = moving
+        const instructions = shrinking
+            ? 'Click the tiny shrinking targets! Avoid the red X decoys!'
+            : moving
             ? 'Click the moving targets! Avoid the red X decoys!'
             : hasDecoys
             ? 'Click the colored circles! Avoid the red X decoys!'
@@ -2425,6 +2428,17 @@ class GameScene extends Phaser.Scene {
                 duration: 150,
                 ease: 'Power2',
             });
+
+            // Shrinking targets: shrink from full size to half over stayTime
+            if (shrinking) {
+                this.tweens.add({
+                    targets: decoyX ? [circle, decoyX] : circle,
+                    scaleX: 0.5,
+                    scaleY: 0.5,
+                    duration: stayTime,
+                    ease: 'Linear',
+                });
+            }
 
             let clicked = false;
 
