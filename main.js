@@ -50,6 +50,7 @@ const LevelRegistry = {
     43: { type: 'memory-cards', config: { rows: 5, cols: 6, timeLimit: 35, reshuffleAfter: 3, flipBackSpeed: 500 } },
     44: { type: 'jigsaw', config: { rows: 4, cols: 4, canRotate: true } },
     45: { type: 'maze', config: { width: 23, height: 23, cellSize: 24, fogOfWar: true, viewRadius: 3, enemies: 3 } },
+    46: { type: 'pattern-complete', config: { patternLength: 12, numChoices: 6, is2D: true, perspective: true } },
 };
 
 // ============================================================
@@ -1434,6 +1435,11 @@ class GameScene extends Phaser.Scene {
             { name: 'Diamond', color: 0xffdd44, colorName: 'Yellow' },
         ];
 
+        if (is2D && config.perspective) {
+            this.createPatternComplete3D(config, shapeDefs);
+            return;
+        }
+
         if (is2D) {
             this.createPatternComplete2D(config, shapeDefs);
             return;
@@ -1716,6 +1722,321 @@ class GameScene extends Phaser.Scene {
                 }
             });
         });
+    }
+
+    createPatternComplete3D(config, baseShapeDefs) {
+        const { width, height } = this.scale;
+        const { numChoices } = config;
+        const cols = 4;
+        const rows = 3;
+
+        // Extended shape defs for 6 choices
+        const shapeDefs = [
+            ...baseShapeDefs,
+            { name: 'Pentagon', color: 0xff8844, colorName: 'Orange' },
+            { name: 'Hexagon', color: 0x44dddd, colorName: 'Cyan' },
+        ];
+
+        // Instructions
+        this.add.text(width / 2, 38, 'Fill the missing pieces in the 3D grid!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 58, 'Click a gap, then pick its shape from the choices below.', {
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#777777',
+        }).setOrigin(0.5);
+
+        // Draw shape with perspective (isometric-style depth cues)
+        const drawShape3D = (x, y, shapeDef, size, alpha) => {
+            const group = [];
+            const shadowOff = size * 0.15;
+            const shadowAlpha = 0.25;
+
+            // Shadow / depth layer
+            if (shapeDef.name === 'Circle') {
+                group.push(this.add.circle(x + shadowOff, y + shadowOff, size / 2, 0x000000).setAlpha(shadowAlpha));
+                group.push(this.add.circle(x, y, size / 2, shapeDef.color).setAlpha(alpha || 1));
+                // Highlight for 3D effect
+                group.push(this.add.circle(x - size * 0.15, y - size * 0.15, size * 0.2, 0xffffff).setAlpha(0.25));
+            } else if (shapeDef.name === 'Square') {
+                group.push(this.add.rectangle(x + shadowOff, y + shadowOff, size, size, 0x000000).setAlpha(shadowAlpha));
+                group.push(this.add.rectangle(x, y, size, size, shapeDef.color).setAlpha(alpha || 1));
+                group.push(this.add.rectangle(x - size * 0.12, y - size * 0.12, size * 0.3, size * 0.3, 0xffffff).setAlpha(0.2));
+            } else if (shapeDef.name === 'Triangle') {
+                group.push(this.add.triangle(x + shadowOff, y + shadowOff, 0, size, size / 2, 0, size, size, 0x000000).setAlpha(shadowAlpha));
+                group.push(this.add.triangle(x, y, 0, size, size / 2, 0, size, size, shapeDef.color).setAlpha(alpha || 1));
+            } else if (shapeDef.name === 'Diamond') {
+                const pts = [0, -size / 2, size / 2, 0, 0, size / 2, -size / 2, 0];
+                group.push(this.add.polygon(x + shadowOff, y + shadowOff, pts, 0x000000).setAlpha(shadowAlpha));
+                group.push(this.add.polygon(x, y, pts, shapeDef.color).setAlpha(alpha || 1));
+            } else if (shapeDef.name === 'Pentagon') {
+                const pts = [];
+                for (let i = 0; i < 5; i++) {
+                    const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2;
+                    pts.push(Math.cos(angle) * size / 2, Math.sin(angle) * size / 2);
+                }
+                group.push(this.add.polygon(x + shadowOff, y + shadowOff, pts, 0x000000).setAlpha(shadowAlpha));
+                group.push(this.add.polygon(x, y, pts, shapeDef.color).setAlpha(alpha || 1));
+            } else if (shapeDef.name === 'Hexagon') {
+                const pts = [];
+                for (let i = 0; i < 6; i++) {
+                    const angle = (Math.PI * 2 * i) / 6 - Math.PI / 6;
+                    pts.push(Math.cos(angle) * size / 2, Math.sin(angle) * size / 2);
+                }
+                group.push(this.add.polygon(x + shadowOff, y + shadowOff, pts, 0x000000).setAlpha(shadowAlpha));
+                group.push(this.add.polygon(x, y, pts, shapeDef.color).setAlpha(alpha || 1));
+            }
+            return group;
+        };
+
+        // Build a 4x3 grid pattern: each cell determined by (r + c) % numPatternShapes
+        const numPatternShapes = Math.min(4, shapeDefs.length);
+        const patternShapes = Phaser.Utils.Array.Shuffle([...shapeDefs]).slice(0, numPatternShapes);
+        const grid = [];
+        for (let r = 0; r < rows; r++) {
+            grid[r] = [];
+            for (let c = 0; c < cols; c++) {
+                grid[r][c] = patternShapes[(r * cols + c) % numPatternShapes];
+            }
+        }
+
+        // Pick 3 random missing cells
+        const allCells = [];
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                allCells.push({ r, c });
+            }
+        }
+        Phaser.Utils.Array.Shuffle(allCells);
+        const missingCells = allCells.slice(0, 3);
+        const missingSet = new Set(missingCells.map(m => `${m.r},${m.c}`));
+
+        // Isometric perspective parameters
+        const baseSize = 52;
+        const paddingX = 18;
+        const paddingY = 14;
+        // Size scales with row (back rows smaller)
+        const getScale = (r) => 0.7 + 0.15 * r;
+        // Isometric offset: back rows shifted up and slightly right
+        const getIsoX = (c, r) => {
+            const scale = getScale(r);
+            const size = baseSize * scale;
+            const totalW = cols * size + (cols - 1) * paddingX * scale;
+            const startX = (width - totalW) / 2 + size / 2;
+            return startX + c * (size + paddingX * scale);
+        };
+        const getIsoY = (r) => {
+            // Rows go from top (back) to bottom (front)
+            const baseY = 95;
+            let y = baseY;
+            for (let i = 0; i < r; i++) {
+                const scale = getScale(i);
+                y += baseSize * scale + paddingY;
+            }
+            return y + (baseSize * getScale(r)) / 2;
+        };
+
+        // Draw the grid with perspective
+        const placeholders = {};
+        const questionMarks = {};
+
+        for (let r = 0; r < rows; r++) {
+            const scale = getScale(r);
+            const size = baseSize * scale;
+            for (let c = 0; c < cols; c++) {
+                const x = getIsoX(c, r);
+                const y = getIsoY(r);
+
+                if (missingSet.has(`${r},${c}`)) {
+                    // Draw placeholder with depth shadow
+                    const shadowOff = size * 0.15;
+                    this.add.rectangle(x + shadowOff, y + shadowOff, size, size, 0x000000).setAlpha(0.2);
+                    const ph = this.add.rectangle(x, y, size, size, 0x3a3a6a)
+                        .setInteractive({ useHandCursor: true });
+                    const qm = this.add.text(x, y, '?', {
+                        fontSize: `${Math.round(28 * scale)}px`,
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#888888',
+                    }).setOrigin(0.5);
+                    placeholders[`${r},${c}`] = ph;
+                    questionMarks[`${r},${c}`] = qm;
+                } else {
+                    drawShape3D(x, y, grid[r][c], size, 1);
+                }
+            }
+        }
+
+        // State tracking
+        let selectedCell = null;
+        let solvedCount = 0;
+        const solvedCells = new Set();
+        let selectionOutline = null;
+
+        // Feedback text
+        const feedbackText = this.add.text(width / 2, height - 40, '', {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        // Progress text
+        const progressText = this.add.text(width / 2, height - 62, `Filled: 0 / 3`, {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Click handler for placeholder cells
+        missingCells.forEach(({ r, c }) => {
+            const key = `${r},${c}`;
+            const ph = placeholders[key];
+
+            ph.on('pointerdown', () => {
+                if (solvedCells.has(key)) return;
+
+                // Deselect previous
+                if (selectionOutline) selectionOutline.destroy();
+
+                selectedCell = { r, c, key };
+
+                // Draw selection outline
+                const scale = getScale(r);
+                const size = baseSize * scale;
+                const x = getIsoX(c, r);
+                const y = getIsoY(r);
+                selectionOutline = this.add.rectangle(x, y, size + 6, size + 6)
+                    .setStrokeStyle(3, 0xffffff)
+                    .setFillStyle(0x000000, 0);
+
+                feedbackText.setText(`Pick the shape for row ${r + 1}, col ${c + 1}`).setColor('#aaaaaa');
+
+                // Update choice highlights
+                updateChoices();
+            });
+        });
+
+        // Build choices area - for each missing cell, the correct answer + distractors
+        // We show a single set of 6 choices that changes based on which cell is selected
+        const choiceY = height - 115;
+        const choiceSize = 48;
+        const choicePadding = 22;
+        const choiceTotalW = numChoices * choiceSize + (numChoices - 1) * choicePadding;
+        const choiceStartX = (width - choiceTotalW) / 2 + choiceSize / 2;
+
+        // Precompute choices for each missing cell
+        const cellChoices = {};
+        missingCells.forEach(({ r, c }) => {
+            const key = `${r},${c}`;
+            const correct = grid[r][c];
+            const others = shapeDefs.filter(s => s.name !== correct.name);
+            Phaser.Utils.Array.Shuffle(others);
+            const choices = [correct, ...others.slice(0, numChoices - 1)];
+            Phaser.Utils.Array.Shuffle(choices);
+            cellChoices[key] = choices;
+        });
+
+        // Choice display objects
+        const choiceBgs = [];
+        const choiceShapeGroups = [];
+        const choiceLabels = [];
+
+        for (let i = 0; i < numChoices; i++) {
+            const cx = choiceStartX + i * (choiceSize + choicePadding);
+            const bg = this.add.rectangle(cx, choiceY, choiceSize + 10, choiceSize + 10, 0x2a2a4a)
+                .setInteractive({ useHandCursor: true });
+            choiceBgs.push(bg);
+            choiceShapeGroups.push([]);
+
+            const label = this.add.text(cx, choiceY + choiceSize / 2 + 12, '', {
+                fontSize: '11px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            choiceLabels.push(label);
+
+            bg.on('pointerover', () => {
+                if (selectedCell && !solvedCells.has(selectedCell.key)) bg.setFillStyle(0x4a4a6a);
+            });
+            bg.on('pointerout', () => {
+                bg.setFillStyle(0x2a2a4a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (!selectedCell || solvedCells.has(selectedCell.key)) return;
+
+                const key = selectedCell.key;
+                const choices = cellChoices[key];
+                const picked = choices[i];
+                const correct = grid[selectedCell.r][selectedCell.c];
+
+                if (picked.name === correct.name) {
+                    // Correct!
+                    solvedCells.add(key);
+                    solvedCount++;
+                    progressText.setText(`Filled: ${solvedCount} / 3`);
+
+                    // Reveal the shape in the grid
+                    const scale = getScale(selectedCell.r);
+                    const size = baseSize * scale;
+                    const sx = getIsoX(selectedCell.c, selectedCell.r);
+                    const sy = getIsoY(selectedCell.r);
+                    placeholders[key].setVisible(false);
+                    questionMarks[key].setVisible(false);
+                    drawShape3D(sx, sy, correct, size, 1);
+
+                    if (selectionOutline) {
+                        selectionOutline.destroy();
+                        selectionOutline = null;
+                    }
+                    selectedCell = null;
+
+                    if (solvedCount >= 3) {
+                        feedbackText.setText('All correct!').setColor('#44dd44');
+                        this.time.delayedCall(600, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    } else {
+                        feedbackText.setText('Correct! Pick the next gap.').setColor('#44dd44');
+                        clearChoices();
+                    }
+                } else {
+                    // Wrong
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Try again.').setColor('#ff4444');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x2a2a4a);
+                    });
+                }
+            });
+        }
+
+        const clearChoices = () => {
+            for (let i = 0; i < numChoices; i++) {
+                choiceShapeGroups[i].forEach(obj => obj.destroy());
+                choiceShapeGroups[i] = [];
+                choiceLabels[i].setText('');
+            }
+        };
+
+        const updateChoices = () => {
+            if (!selectedCell) return;
+            const choices = cellChoices[selectedCell.key];
+
+            for (let i = 0; i < numChoices; i++) {
+                const cx = choiceStartX + i * (choiceSize + choicePadding);
+                // Clear old shapes
+                choiceShapeGroups[i].forEach(obj => obj.destroy());
+                choiceShapeGroups[i] = drawShape3D(cx, choiceY, choices[i], choiceSize - 12, 1);
+                choiceLabels[i].setText(choices[i].colorName);
+            }
+        };
+
+        // Initial hint
+        feedbackText.setText('Click a "?" cell to select it.').setColor('#aaaaaa');
     }
 
     createReactionTimePuzzle(config) {
