@@ -102,6 +102,7 @@ const LevelRegistry = {
     95: { type: 'math', config: { problems: 5, mode: 'number-theory', timeLimit: 120 } },
     96: { type: 'color-chain', config: { gridSize: 14, colors: 18, fillBoard: true, timeLimit: 300 } },
     97: { type: 'sorting', config: { count: 20, maxValue: 1000, mode: 'quantum', timeLimit: 90 } },
+    98: { type: 'word-scramble', config: { mode: 'polyglot', languages: 3, wordsPerLang: 2, timeLimit: 120 } },
 };
 
 // ============================================================
@@ -10274,6 +10275,11 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
+        if (config.mode === 'polyglot') {
+            this.createPolyglotPuzzle(config);
+            return;
+        }
+
         if (multiWord && wordCount === 2) {
             this.createMultiWordScramblePuzzle(config);
             return;
@@ -10683,6 +10689,374 @@ class GameScene extends Phaser.Scene {
             }
             activeRow = 1;
             updateRowIndicators();
+        });
+    }
+
+    createPolyglotPuzzle(config) {
+        const { width, height } = this.scale;
+        const { timeLimit } = config;
+
+        const languages = [
+            { name: 'English', color: 0x4488ff, words: ['cipher', 'enigma'] },
+            { name: 'Valdrian', color: 0x44dd44, words: ['fortis', 'veritas'] },
+            { name: 'Norskheim', color: 0xffaa44, words: ['mjolnir', 'fenrir'] },
+        ];
+
+        const allWords = [];
+        languages.forEach((lang, langIndex) => {
+            lang.words.forEach(word => {
+                allWords.push({ word, langIndex, lang: lang.name });
+            });
+        });
+
+        // Scramble each word's letters
+        const scrambledWords = allWords.map(entry => {
+            const letters = entry.word.split('');
+            let scrambled = [...letters];
+            let attempts = 0;
+            do {
+                scrambled = Phaser.Utils.Array.Shuffle([...letters]);
+                attempts++;
+            } while (scrambled.join('') === entry.word && attempts < 20);
+            return { ...entry, scrambled: scrambled.join('').toUpperCase(), solved: false, placed: false, placedLang: -1 };
+        });
+
+        // Shuffle the order shown to the player
+        Phaser.Utils.Array.Shuffle(scrambledWords);
+
+        // Title and instructions
+        this.add.text(width / 2, 30, 'Polyglot Scramble', {
+            fontSize: '24px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 58, 'Unscramble each word, then drag it to the correct language column', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2, height - 30, `Time: ${timeLeft}s`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 10) timerText.setColor('#ff4444');
+                if (timeLeft <= 0) this.handleTimeUp();
+            },
+        });
+
+        // Layout: 3 language columns at the top, scrambled words below
+        const colWidth = (width - 40) / 3;
+        const colStartX = 20;
+        const headerY = 90;
+        const slotStartY = 130;
+        const slotHeight = 40;
+        const slotSpacing = 50;
+
+        // Draw language columns with headers and slots
+        const columnSlots = []; // [langIndex][slotIndex] = { bg, txt, wordEntry }
+        languages.forEach((lang, li) => {
+            const cx = colStartX + li * colWidth + colWidth / 2;
+
+            // Header
+            this.add.rectangle(cx, headerY, colWidth - 10, 30, lang.color).setAlpha(0.3);
+            this.add.text(cx, headerY, lang.name, {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            // Word slots
+            const slots = [];
+            for (let s = 0; s < 2; s++) {
+                const sy = slotStartY + s * slotSpacing;
+                const bg = this.add.rectangle(cx, sy, colWidth - 20, slotHeight, 0x2a2a4a)
+                    .setStrokeStyle(2, lang.color)
+                    .setInteractive({ useHandCursor: true, dropZone: true });
+                const txt = this.add.text(cx, sy, '', {
+                    fontSize: '18px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                slots.push({ bg, txt, wordEntry: null, langIndex: li });
+            }
+            columnSlots.push(slots);
+        });
+
+        // Scrambled words area
+        const wordAreaY = 260;
+        const wordTileWidth = 120;
+        const wordTileHeight = 50;
+        const inputTileSize = 36;
+        const inputSpacing = 42;
+
+        let activeWordIndex = -1;
+        const wordCards = [];
+        let totalPlaced = 0;
+
+        // For each scrambled word, create an interactive unscramble area
+        const wordsPerRow = 3;
+        const rowSpacing = 130;
+        const wordColSpacing = (width - 40) / wordsPerRow;
+
+        scrambledWords.forEach((entry, wi) => {
+            const row = Math.floor(wi / wordsPerRow);
+            const col = wi % wordsPerRow;
+            const cx = colStartX + col * wordColSpacing + wordColSpacing / 2;
+            const cy = wordAreaY + row * rowSpacing;
+
+            // Scrambled display
+            const scrambledText = this.add.text(cx, cy, entry.scrambled, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#cccccc',
+            }).setOrigin(0.5);
+
+            // Letter input tiles below the scrambled text
+            const letters = entry.scrambled.split('');
+            const answer = new Array(letters.length).fill(null);
+            const answerSlots = [];
+            const letterTiles = [];
+            const inputStartX = cx - (inputSpacing * (letters.length - 1)) / 2;
+            const inputY = cy + 35;
+
+            // Answer slots
+            for (let i = 0; i < letters.length; i++) {
+                const x = inputStartX + i * inputSpacing;
+                const bg = this.add.rectangle(x, inputY, inputTileSize, inputTileSize, 0x3a3a5a)
+                    .setStrokeStyle(1, 0x6a6aaa)
+                    .setInteractive({ useHandCursor: true });
+                const txt = this.add.text(x, inputY, '', {
+                    fontSize: '20px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                bg.on('pointerdown', () => {
+                    if (entry.solved) return;
+                    if (answer[i] !== null) {
+                        const removed = answer[i];
+                        answer[i] = null;
+                        txt.setText('');
+                        removed.bg.setVisible(true);
+                        removed.txt.setVisible(true);
+                        removed.bg.setInteractive({ useHandCursor: true });
+                    }
+                });
+
+                answerSlots.push({ bg, txt });
+            }
+
+            // Letter tiles below answer slots
+            const tileY = inputY + 40;
+            for (let i = 0; i < letters.length; i++) {
+                const x = inputStartX + i * inputSpacing;
+                const bg = this.add.rectangle(x, tileY, inputTileSize, inputTileSize, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true });
+                const txt = this.add.text(x, tileY, letters[i], {
+                    fontSize: '20px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                bg.on('pointerover', () => { if (bg.visible) bg.setFillStyle(0x6a6aaa); });
+                bg.on('pointerout', () => { if (bg.visible) bg.setFillStyle(0x4a4a8a); });
+
+                const tile = { bg, txt, letter: letters[i].toLowerCase() };
+                letterTiles.push(tile);
+
+                bg.on('pointerdown', () => {
+                    if (entry.solved) return;
+                    let emptyIndex = -1;
+                    for (let j = 0; j < answer.length; j++) {
+                        if (answer[j] === null) { emptyIndex = j; break; }
+                    }
+                    if (emptyIndex === -1) return;
+
+                    answer[emptyIndex] = tile;
+                    answerSlots[emptyIndex].txt.setText(letters[i]);
+                    bg.setVisible(false);
+                    txt.setVisible(false);
+                    bg.disableInteractive();
+
+                    // Check if complete
+                    const currentAnswer = answer.map(a => a ? a.letter : '').join('');
+                    if (currentAnswer.length === entry.word.length && !answer.includes(null)) {
+                        if (currentAnswer === entry.word) {
+                            // Solved! Mark it and make it draggable to a column
+                            entry.solved = true;
+                            scrambledText.setText(entry.word.toUpperCase()).setColor('#44dd44');
+                            answerSlots.forEach(s => {
+                                s.bg.setFillStyle(0x44dd44).setAlpha(0.5);
+                                s.bg.disableInteractive();
+                            });
+                            letterTiles.forEach(t => t.bg.disableInteractive());
+
+                            // Show "drag to column" prompt
+                            const dragPrompt = this.add.text(cx, tileY + 35, '▼ Click a column slot ▼', {
+                                fontSize: '12px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#88ff88',
+                            }).setOrigin(0.5);
+
+                            // Enable clicking column slots for this word
+                            wordCards[wi].dragPrompt = dragPrompt;
+                            wordCards[wi].readyToPlace = true;
+                            activeWordIndex = wi;
+                        } else {
+                            // Wrong
+                            answerSlots.forEach(s => s.bg.setFillStyle(0xff4444));
+                            this.time.delayedCall(400, () => {
+                                answerSlots.forEach(s => s.bg.setFillStyle(0x3a3a5a));
+                            });
+                        }
+                    }
+                });
+            }
+
+            wordCards.push({
+                entry,
+                scrambledText,
+                answerSlots,
+                letterTiles,
+                answer,
+                readyToPlace: false,
+                dragPrompt: null,
+            });
+        });
+
+        // Handle clicking on column slots to place solved words
+        const checkAllPlaced = () => {
+            if (totalPlaced === allWords.length) {
+                // Check correctness
+                let allCorrect = true;
+                columnSlots.forEach((slots, li) => {
+                    slots.forEach(slot => {
+                        if (!slot.wordEntry || slot.wordEntry.langIndex !== li) {
+                            allCorrect = false;
+                        }
+                    });
+                });
+
+                if (allCorrect) {
+                    timerEvent.remove(false);
+                    columnSlots.forEach(slots => {
+                        slots.forEach(slot => {
+                            slot.bg.setFillStyle(0x44dd44);
+                        });
+                    });
+                    this.add.text(width / 2, height - 60, 'Correct!', {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#44dd44',
+                    }).setOrigin(0.5);
+                    this.time.delayedCall(800, () => {
+                        this.scene.start('LevelCompleteScene', { level: this.level });
+                    });
+                } else {
+                    // Wrong placement - flash red and reset
+                    columnSlots.forEach(slots => {
+                        slots.forEach(slot => {
+                            slot.bg.setFillStyle(0xff4444);
+                        });
+                    });
+                    this.time.delayedCall(600, () => {
+                        // Reset all placements
+                        columnSlots.forEach(slots => {
+                            slots.forEach(slot => {
+                                if (slot.wordEntry) {
+                                    const wi2 = scrambledWords.indexOf(slot.wordEntry);
+                                    if (wi2 !== -1) {
+                                        wordCards[wi2].entry.placed = false;
+                                        wordCards[wi2].entry.placedLang = -1;
+                                        wordCards[wi2].readyToPlace = true;
+                                        wordCards[wi2].scrambledText.setColor('#44dd44');
+                                        if (wordCards[wi2].dragPrompt) wordCards[wi2].dragPrompt.setVisible(true);
+                                    }
+                                    slot.wordEntry = null;
+                                    slot.txt.setText('');
+                                    slot.bg.setFillStyle(0x2a2a4a);
+                                }
+                            });
+                        });
+                        totalPlaced = 0;
+                    });
+                }
+            }
+        };
+
+        // Make column slots clickable to receive the active solved word
+        columnSlots.forEach((slots, li) => {
+            slots.forEach(slot => {
+                slot.bg.on('pointerdown', () => {
+                    if (activeWordIndex === -1) return;
+                    const card = wordCards[activeWordIndex];
+                    if (!card.readyToPlace || card.entry.placed) return;
+
+                    // If slot already occupied, swap out the old word
+                    if (slot.wordEntry) {
+                        const oldWi = scrambledWords.indexOf(slot.wordEntry);
+                        if (oldWi !== -1) {
+                            wordCards[oldWi].entry.placed = false;
+                            wordCards[oldWi].entry.placedLang = -1;
+                            wordCards[oldWi].readyToPlace = true;
+                            wordCards[oldWi].scrambledText.setColor('#44dd44');
+                            if (wordCards[oldWi].dragPrompt) wordCards[oldWi].dragPrompt.setVisible(true);
+                        }
+                        totalPlaced--;
+                    }
+
+                    // Place the word
+                    slot.wordEntry = card.entry;
+                    slot.txt.setText(card.entry.word.toUpperCase());
+                    slot.bg.setFillStyle(languages[li].color).setAlpha(0.4);
+                    card.entry.placed = true;
+                    card.entry.placedLang = li;
+                    card.readyToPlace = false;
+                    card.scrambledText.setColor('#888888');
+                    if (card.dragPrompt) card.dragPrompt.setVisible(false);
+                    activeWordIndex = -1;
+                    totalPlaced++;
+
+                    checkAllPlaced();
+                });
+
+                slot.bg.on('pointerover', () => {
+                    if (activeWordIndex !== -1 && wordCards[activeWordIndex].readyToPlace) {
+                        slot.bg.setAlpha(0.7);
+                    }
+                });
+                slot.bg.on('pointerout', () => {
+                    slot.bg.setAlpha(slot.wordEntry ? 0.4 : 1);
+                });
+            });
+        });
+
+        // Allow clicking on solved word cards to select them for placement
+        wordCards.forEach((card, wi) => {
+            card.scrambledText.setInteractive({ useHandCursor: true });
+            card.scrambledText.on('pointerdown', () => {
+                if (card.entry.solved && !card.entry.placed) {
+                    activeWordIndex = wi;
+                    // Highlight active word
+                    wordCards.forEach((c, i) => {
+                        if (c.entry.solved && !c.entry.placed) {
+                            c.scrambledText.setColor(i === wi ? '#ffffff' : '#44dd44');
+                        }
+                    });
+                }
+            });
         });
     }
 
