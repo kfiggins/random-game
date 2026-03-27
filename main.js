@@ -85,6 +85,7 @@ const LevelRegistry = {
     78: { type: 'word-scramble', config: { mode: 'anagram-chain', chainLength: 5, timeLimit: 90 } },
     79: { type: 'tower-of-hanoi', config: { discs: 8, timeLimit: 300 } },
     80: { type: 'multi-puzzle', config: { stages: 6, timeLimit: 200 } },
+    81: { type: 'color-chain', config: { gridSize: 12, colors: 15, fillBoard: true, timeLimit: 240 } },
 };
 
 // ============================================================
@@ -9455,10 +9456,46 @@ class GameScene extends Phaser.Scene {
             color: '#666666',
         }).setOrigin(0.5);
 
-        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa, 0x88ff44, 0xffd700, 0xff6b6b, 0x5555ff];
+        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff, 0xff8844, 0x44dddd, 0xff44aa, 0x88ff44, 0xffd700, 0xff6b6b, 0x5555ff, 0xaa8844, 0x44ffaa, 0xe84393];
         let colorValues, endpoints;
 
-        if (gridSize === 10 && colors === 12 && fillBoard) {
+        if (gridSize === 12 && colors === 15 && fillBoard) {
+            // Hardcoded solvable 12x12 puzzle with 15 color pairs that fills all 144 cells
+            // Serpentine paths winding across the grid:
+            // Path 0  (red):     (0,0)→(0,1)→(0,2)→(0,3)→(0,4)→(0,5)→(0,6)→(0,7)→(0,8)→(0,9)
+            // Path 1  (green):   (0,10)→(0,11)→(1,11)→(1,10)→(1,9)→(1,8)→(1,7)→(1,6)→(1,5)
+            // Path 2  (blue):    (1,4)→(1,3)→(1,2)→(1,1)→(1,0)→(2,0)→(2,1)→(2,2)→(2,3)→(2,4)
+            // Path 3  (yellow):  (2,5)→(2,6)→(2,7)→(2,8)→(2,9)→(2,10)→(2,11)→(3,11)→(3,10)→(3,9)
+            // Path 4  (purple):  (3,8)→(3,7)→(3,6)→(3,5)→(3,4)→(3,3)→(3,2)→(3,1)→(3,0)→(4,0)
+            // Path 5  (orange):  (4,1)→(4,2)→(4,3)→(4,4)→(4,5)→(4,6)→(4,7)→(4,8)→(4,9)
+            // Path 6  (cyan):    (4,10)→(4,11)→(5,11)→(5,10)→(5,9)→(5,8)→(5,7)→(5,6)→(5,5)
+            // Path 7  (pink):    (5,4)→(5,3)→(5,2)→(5,1)→(5,0)→(6,0)→(6,1)→(6,2)→(6,3)→(6,4)
+            // Path 8  (lime):    (6,5)→(6,6)→(6,7)→(6,8)→(6,9)→(6,10)→(6,11)→(7,11)→(7,10)→(7,9)
+            // Path 9  (gold):    (7,8)→(7,7)→(7,6)→(7,5)→(7,4)→(7,3)→(7,2)→(7,1)→(7,0)→(8,0)
+            // Path 10 (coral):   (8,1)→(8,2)→(8,3)→(8,4)→(8,5)→(8,6)→(8,7)→(8,8)→(8,9)
+            // Path 11 (indigo):  (8,10)→(8,11)→(9,11)→(9,10)→(9,9)→(9,8)→(9,7)→(9,6)→(9,5)
+            // Path 12 (brown):   (9,4)→(9,3)→(9,2)→(9,1)→(9,0)→(10,0)→(10,1)→(10,2)→(10,3)→(10,4)
+            // Path 13 (mint):    (10,5)→(10,6)→(10,7)→(10,8)→(10,9)→(10,10)→(10,11)→(11,11)→(11,10)→(11,9)
+            // Path 14 (rose):    (11,8)→(11,7)→(11,6)→(11,5)→(11,4)→(11,3)→(11,2)→(11,1)→(11,0)
+            colorValues = allColorValues.slice(0, 15);
+            endpoints = [
+                { color: 0,  start: { r: 0, c: 0 },   end: { r: 0, c: 9 } },
+                { color: 1,  start: { r: 0, c: 10 },  end: { r: 1, c: 5 } },
+                { color: 2,  start: { r: 1, c: 4 },   end: { r: 2, c: 4 } },
+                { color: 3,  start: { r: 2, c: 5 },   end: { r: 3, c: 9 } },
+                { color: 4,  start: { r: 3, c: 8 },   end: { r: 4, c: 0 } },
+                { color: 5,  start: { r: 4, c: 1 },   end: { r: 4, c: 9 } },
+                { color: 6,  start: { r: 4, c: 10 },  end: { r: 5, c: 5 } },
+                { color: 7,  start: { r: 5, c: 4 },   end: { r: 6, c: 4 } },
+                { color: 8,  start: { r: 6, c: 5 },   end: { r: 7, c: 9 } },
+                { color: 9,  start: { r: 7, c: 8 },   end: { r: 8, c: 0 } },
+                { color: 10, start: { r: 8, c: 1 },   end: { r: 8, c: 9 } },
+                { color: 11, start: { r: 8, c: 10 },  end: { r: 9, c: 5 } },
+                { color: 12, start: { r: 9, c: 4 },   end: { r: 10, c: 4 } },
+                { color: 13, start: { r: 10, c: 5 },  end: { r: 11, c: 9 } },
+                { color: 14, start: { r: 11, c: 8 },  end: { r: 11, c: 0 } },
+            ];
+        } else if (gridSize === 10 && colors === 12 && fillBoard) {
             // Hardcoded solvable 10x10 puzzle with 12 color pairs that fills all 100 cells
             // Path 0  (red):    (0,0)→(0,1)→(0,2)→(0,3)→(0,4)→(0,5)→(0,6)→(0,7)→(0,8)→(0,9)
             // Path 1  (green):  (1,9)→(1,8)→(1,7)→(1,6)→(1,5)→(1,4)→(1,3)→(1,2)
@@ -9593,11 +9630,11 @@ class GameScene extends Phaser.Scene {
         let solved = false;
 
         // Drawing
-        const cellSize = gridSize <= 5 ? 70 : gridSize <= 7 ? 58 : 44;
+        const cellSize = gridSize <= 5 ? 70 : gridSize <= 7 ? 58 : gridSize <= 10 ? 44 : 34;
         const gap = 4;
         const totalSize = gridSize * cellSize + (gridSize - 1) * gap;
         const startX = (width - totalSize) / 2 + cellSize / 2;
-        const startY = (gridSize <= 7 ? 140 : 115) + cellSize / 2;
+        const startY = (gridSize <= 7 ? 140 : gridSize <= 10 ? 115 : 108) + cellSize / 2;
 
         const cellGraphics = [];
         const dotGraphics = [];
@@ -9765,7 +9802,7 @@ class GameScene extends Phaser.Scene {
 
                 // Draw endpoint dots
                 if (endpointMap[r][c] >= 0) {
-                    const dotRadius = gridSize <= 7 ? 18 : 14;
+                    const dotRadius = gridSize <= 7 ? 18 : gridSize <= 10 ? 14 : 10;
                     const dot = this.add.circle(x, y, dotRadius, colorValues[endpointMap[r][c]])
                         .setStrokeStyle(2, 0xffffff);
                     dotGraphics[r][c] = dot;
