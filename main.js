@@ -91,6 +91,7 @@ const LevelRegistry = {
     84: { type: 'maze', config: { width: 35, height: 35, cellSize: 16, fogOfWar: true, viewRadius: 2, enemies: 8, traps: 10, timeLimit: 75, hasKeys: true, keys: 5, teleporters: 3, darkZones: true } },
     85: { type: 'pattern-complete', config: { patternLength: 25, numChoices: 10, is2D: true, illusion: true } },
     86: { type: 'sorting', config: { count: 16, maxValue: 500, mode: 'merge-sort', timeLimit: 120 } },
+    87: { type: 'math', config: { problems: 3, mode: 'matrix', timeLimit: 120 } },
 };
 
 // ============================================================
@@ -3729,6 +3730,10 @@ class GameScene extends Phaser.Scene {
             return this.createRateOfChangePuzzle(config);
         }
 
+        if (config.mode === 'matrix') {
+            return this.createMatrixMathPuzzle(config);
+        }
+
         const { problems, operations, maxNum, timeLimit } = config;
 
         // Instructions
@@ -5647,6 +5652,314 @@ class GameScene extends Phaser.Scene {
         this.createButton(width / 2, height / 2 + 110, 'Back to Menu', () => {
             this.scene.start('MenuScene');
         }, 0x5a3a3a, 0x7a5a5a);
+    }
+
+    createMatrixMathPuzzle(config) {
+        const { width, height } = this.scale;
+        const { problems, timeLimit } = config;
+
+        this.add.text(width / 2, 30, 'Matrix Math', {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width - 80, 30, `Time: ${timeLeft}s`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 10) timerText.setColor('#ff4444');
+                if (timeLeft <= 0) {
+                    this.mathCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.mathCleanup = () => { timerEvent.remove(false); };
+
+        const progressText = this.add.text(80, 30, `Problem 1/${problems}`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        let currentProblem = 0;
+        let dynamicObjects = [];
+
+        const clearDynamic = () => {
+            dynamicObjects.forEach(o => o.destroy());
+            dynamicObjects = [];
+        };
+
+        const randMatrix = () => [
+            [Phaser.Math.Between(-9, 9), Phaser.Math.Between(-9, 9)],
+            [Phaser.Math.Between(-9, 9), Phaser.Math.Between(-9, 9)],
+        ];
+
+        const drawMatrix = (mat, cx, cy, label) => {
+            const cellW = 52, cellH = 42, gap = 4;
+            const totalW = cellW * 2 + gap;
+            const totalH = cellH * 2 + gap;
+            const sx = cx - totalW / 2;
+            const sy = cy - totalH / 2;
+
+            if (label) {
+                const lt = this.add.text(cx, sy - 24, label, {
+                    fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#888888',
+                }).setOrigin(0.5);
+                dynamicObjects.push(lt);
+            }
+
+            // Bracket lines
+            const bracketColor = 0x888888;
+            const lLeft = this.add.rectangle(sx - 6, cy, 3, totalH + 10, bracketColor);
+            const lRight = this.add.rectangle(sx + totalW + 6, cy, 3, totalH + 10, bracketColor);
+            dynamicObjects.push(lLeft, lRight);
+
+            for (let r = 0; r < 2; r++) {
+                for (let c = 0; c < 2; c++) {
+                    const x = sx + c * (cellW + gap) + cellW / 2;
+                    const y = sy + r * (cellH + gap) + cellH / 2;
+                    const bg = this.add.rectangle(x, y, cellW, cellH, 0x3a3a6a);
+                    const txt = this.add.text(x, y, `${mat[r][c]}`, {
+                        fontSize: '22px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                    }).setOrigin(0.5);
+                    dynamicObjects.push(bg, txt);
+                }
+            }
+        };
+
+        const showProblem = () => {
+            clearDynamic();
+            progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+            // Pick a random problem type
+            const types = ['add', 'multiply-scalar', 'transpose'];
+            const type = Phaser.Utils.Array.GetRandom(types);
+
+            let answer; // 2x2 array
+            let instructionStr = '';
+
+            if (type === 'add') {
+                const A = randMatrix();
+                const B = randMatrix();
+                answer = [
+                    [A[0][0] + B[0][0], A[0][1] + B[0][1]],
+                    [A[1][0] + B[1][0], A[1][1] + B[1][1]],
+                ];
+                instructionStr = 'Find A + B';
+                drawMatrix(A, width / 2 - 100, height / 2 - 100, 'A');
+                const plusText = this.add.text(width / 2, height / 2 - 100, '+', {
+                    fontSize: '28px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                }).setOrigin(0.5);
+                dynamicObjects.push(plusText);
+                drawMatrix(B, width / 2 + 100, height / 2 - 100, 'B');
+            } else if (type === 'multiply-scalar') {
+                const A = randMatrix();
+                const scalar = 2;
+                answer = [
+                    [A[0][0] * scalar, A[0][1] * scalar],
+                    [A[1][0] * scalar, A[1][1] * scalar],
+                ];
+                instructionStr = 'Multiply all elements by 2';
+                drawMatrix(A, width / 2, height / 2 - 100, 'A');
+            } else {
+                // transpose
+                const A = randMatrix();
+                answer = [
+                    [A[0][0], A[1][0]],
+                    [A[0][1], A[1][1]],
+                ];
+                instructionStr = 'Find the transpose of A';
+                drawMatrix(A, width / 2, height / 2 - 100, 'A');
+            }
+
+            const instrText = this.add.text(width / 2, 60, instructionStr, {
+                fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#44bbff',
+            }).setOrigin(0.5);
+            dynamicObjects.push(instrText);
+
+            // Result grid - 2x2 input cells
+            const cellW = 64, cellH = 50, gap = 6;
+            const gridW = cellW * 2 + gap;
+            const gridH = cellH * 2 + gap;
+            const gridX = width / 2 - gridW / 2;
+            const gridY = height / 2 + 40;
+
+            const resultLabel = this.add.text(width / 2, gridY - 20, 'Enter result:', {
+                fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5);
+            dynamicObjects.push(resultLabel);
+
+            const inputCells = [];
+            let selectedCell = null;
+
+            for (let r = 0; r < 2; r++) {
+                inputCells[r] = [];
+                for (let c = 0; c < 2; c++) {
+                    const x = gridX + c * (cellW + gap) + cellW / 2;
+                    const y = gridY + r * (cellH + gap) + cellH / 2;
+                    const bg = this.add.rectangle(x, y, cellW, cellH, 0x2a2a4a)
+                        .setStrokeStyle(2, 0x6a6aaa)
+                        .setInteractive({ useHandCursor: true });
+                    const valText = this.add.text(x, y, '', {
+                        fontSize: '24px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                    }).setOrigin(0.5);
+                    dynamicObjects.push(bg, valText);
+
+                    const cell = { r, c, bg, valText, value: null };
+                    inputCells[r][c] = cell;
+
+                    bg.on('pointerdown', () => {
+                        // Deselect previous
+                        if (selectedCell) {
+                            selectedCell.bg.setStrokeStyle(2, 0x6a6aaa);
+                        }
+                        selectedCell = cell;
+                        bg.setStrokeStyle(3, 0x44ff44);
+                    });
+                }
+            }
+
+            // Select first cell by default
+            selectedCell = inputCells[0][0];
+            selectedCell.bg.setStrokeStyle(3, 0x44ff44);
+
+            // Number pad: -9 to 9
+            const padNumbers = [-9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+            const padY = gridY + gridH + 30;
+            const padBtnW = 38, padBtnH = 34, padGap = 4;
+            const cols = 10;
+            const padTotalW = cols * (padBtnW + padGap) - padGap;
+            const padStartX = width / 2 - padTotalW / 2;
+
+            padNumbers.forEach((num, i) => {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const px = padStartX + col * (padBtnW + padGap) + padBtnW / 2;
+                const py = padY + row * (padBtnH + padGap) + padBtnH / 2;
+                const bg = this.add.rectangle(px, py, padBtnW, padBtnH, 0x4a4a7a)
+                    .setInteractive({ useHandCursor: true });
+                const txt = this.add.text(px, py, `${num}`, {
+                    fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                }).setOrigin(0.5);
+                dynamicObjects.push(bg, txt);
+
+                bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                bg.on('pointerout', () => bg.setFillStyle(0x4a4a7a));
+                bg.on('pointerdown', () => {
+                    if (!selectedCell) return;
+                    selectedCell.value = num;
+                    selectedCell.valText.setText(`${num}`);
+                    // Auto-advance to next empty cell
+                    const order = [inputCells[0][0], inputCells[0][1], inputCells[1][0], inputCells[1][1]];
+                    const curIdx = order.indexOf(selectedCell);
+                    for (let k = 1; k <= 4; k++) {
+                        const next = order[(curIdx + k) % 4];
+                        if (next.value === null) {
+                            selectedCell.bg.setStrokeStyle(2, 0x6a6aaa);
+                            selectedCell = next;
+                            next.bg.setStrokeStyle(3, 0x44ff44);
+                            break;
+                        }
+                    }
+                });
+            });
+
+            // Submit button
+            const submitY = padY + Math.ceil(padNumbers.length / cols) * (padBtnH + padGap) + 20;
+            const submitBg = this.add.rectangle(width / 2, submitY, 140, 44, 0x2a8a2a)
+                .setInteractive({ useHandCursor: true });
+            const submitTxt = this.add.text(width / 2, submitY, 'Submit', {
+                fontSize: '20px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+            }).setOrigin(0.5);
+            dynamicObjects.push(submitBg, submitTxt);
+
+            let feedbackText = null;
+
+            submitBg.on('pointerover', () => submitBg.setFillStyle(0x3aaa3a));
+            submitBg.on('pointerout', () => submitBg.setFillStyle(0x2a8a2a));
+            submitBg.on('pointerdown', () => {
+                // Check if all cells filled
+                for (let r2 = 0; r2 < 2; r2++) {
+                    for (let c2 = 0; c2 < 2; c2++) {
+                        if (inputCells[r2][c2].value === null) {
+                            if (feedbackText) feedbackText.destroy();
+                            feedbackText = this.add.text(width / 2, submitY + 36, 'Fill all cells!', {
+                                fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#ffaa00',
+                            }).setOrigin(0.5);
+                            dynamicObjects.push(feedbackText);
+                            return;
+                        }
+                    }
+                }
+
+                // Check answer
+                let correct = true;
+                for (let r2 = 0; r2 < 2; r2++) {
+                    for (let c2 = 0; c2 < 2; c2++) {
+                        if (inputCells[r2][c2].value !== answer[r2][c2]) {
+                            correct = false;
+                            inputCells[r2][c2].bg.setFillStyle(0x8a2a2a);
+                        } else {
+                            inputCells[r2][c2].bg.setFillStyle(0x2a6a2a);
+                        }
+                    }
+                }
+
+                if (correct) {
+                    if (feedbackText) feedbackText.destroy();
+                    feedbackText = this.add.text(width / 2, submitY + 36, 'Correct!', {
+                        fontSize: '20px', fontFamily: 'Arial, sans-serif', color: '#44dd44',
+                    }).setOrigin(0.5);
+                    dynamicObjects.push(feedbackText);
+
+                    submitBg.disableInteractive();
+                    currentProblem++;
+                    if (currentProblem >= problems) {
+                        timerEvent.remove(false);
+                        this.mathCleanup = null;
+                        this.time.delayedCall(1000, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    } else {
+                        this.time.delayedCall(1000, () => showProblem());
+                    }
+                } else {
+                    if (feedbackText) feedbackText.destroy();
+                    feedbackText = this.add.text(width / 2, submitY + 36, 'Wrong! Fix the red cells.', {
+                        fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#ff4444',
+                    }).setOrigin(0.5);
+                    dynamicObjects.push(feedbackText);
+
+                    // Reset incorrect cells for retry
+                    for (let r2 = 0; r2 < 2; r2++) {
+                        for (let c2 = 0; c2 < 2; c2++) {
+                            if (inputCells[r2][c2].value !== answer[r2][c2]) {
+                                inputCells[r2][c2].value = null;
+                                inputCells[r2][c2].valText.setText('');
+                                this.time.delayedCall(600, () => {
+                                    inputCells[r2][c2].bg.setFillStyle(0x2a2a4a);
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+        };
+
+        showProblem();
     }
 
     createMultiPuzzleBoss(config) {
