@@ -39,6 +39,7 @@ const LevelRegistry = {
     32: { type: 'color-chain', config: { gridSize: 6, colors: 5, fillBoard: true } },
     33: { type: 'light-toggle', config: { size: 5, randomize: true } },
     34: { type: 'reaction-time', config: { targets: 12, targetSize: 35, stayTime: 1800, timeLimit: 25, hasDecoys: true, moving: true } },
+    35: { type: 'sequence-logic', config: { sequenceLength: 8, numChoices: 4, interleaved: true } },
 };
 
 // ============================================================
@@ -2390,14 +2391,7 @@ class GameScene extends Phaser.Scene {
 
     createSequenceLogicPuzzle(config) {
         const { width, height } = this.scale;
-        const { sequenceLength, numChoices } = config;
-
-        // Instructions
-        this.add.text(width / 2, 70, 'Find the rule! What comes next?', {
-            fontSize: '18px',
-            fontFamily: 'Arial, sans-serif',
-            color: '#aaaaaa',
-        }).setOrigin(0.5);
+        const { sequenceLength, numChoices, interleaved } = config;
 
         // Predefined sequences with clear single rules
         const sequenceDefs = [
@@ -2418,6 +2412,18 @@ class GameScene extends Phaser.Scene {
             { rule: 'even numbers', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 2 + i * 2) },
             { rule: 'add increasing', gen: (n) => { const s = [1]; for (let i = 1; i <= n; i++) s.push(s[i - 1] + i + 1); return s; } },
         ];
+
+        if (interleaved) {
+            this.createInterleavedSequenceLogic(config, sequenceDefs);
+            return;
+        }
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Find the rule! What comes next?', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
 
         // Pick a random sequence
         const seqDef = Phaser.Utils.Array.GetRandom(sequenceDefs);
@@ -2519,6 +2525,177 @@ class GameScene extends Phaser.Scene {
                     });
                 } else {
                     // Wrong - flash red
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Try again.');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x2a2a4a);
+                    });
+                }
+            });
+        });
+    }
+
+    createInterleavedSequenceLogic(config, sequenceDefs) {
+        const { width, height } = this.scale;
+        const { sequenceLength, numChoices } = config;
+
+        // Instructions
+        this.add.text(width / 2, 50, 'Two rules are interleaved! What comes next?', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 75, 'Odd positions follow one rule, even positions follow another.', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#666666',
+        }).setOrigin(0.5);
+
+        // Pick two different sequence definitions
+        const shuffled = Phaser.Utils.Array.Shuffle([...sequenceDefs]);
+        const seqDefA = shuffled[0]; // odd positions (1st, 3rd, 5th, ...)
+        const seqDefB = shuffled[1]; // even positions (2nd, 4th, 6th, ...)
+
+        // Calculate how many terms each sub-sequence needs
+        // sequenceLength items displayed + 1 answer
+        // Odd positions: indices 0, 2, 4, ... -> ceil((sequenceLength+1)/2) terms
+        // Even positions: indices 1, 3, 5, ... -> floor((sequenceLength+1)/2) terms
+        const oddCount = Math.ceil((sequenceLength + 1) / 2);
+        const evenCount = Math.floor((sequenceLength + 1) / 2);
+        const seqA = seqDefA.gen(oddCount - 1);  // gen(n) produces n+1 elements
+        const seqB = seqDefB.gen(evenCount - 1);
+
+        // Interleave the two sequences
+        const fullInterleaved = [];
+        let ai = 0, bi = 0;
+        for (let i = 0; i < sequenceLength + 1; i++) {
+            if (i % 2 === 0) {
+                fullInterleaved.push(seqA[ai++]);
+            } else {
+                fullInterleaved.push(seqB[bi++]);
+            }
+        }
+
+        const displayed = fullInterleaved.slice(0, sequenceLength);
+        const correctAnswer = fullInterleaved[sequenceLength];
+
+        // Display the sequence with a '?' at the end
+        // Use smaller spacing for longer sequences
+        const seqY = height / 2 - 60;
+        const items = [...displayed.map(String), '?'];
+        const itemSpacing = Math.min(70, (width - 80) / items.length);
+        const totalW = items.length * itemSpacing;
+        const startX = (width - totalW) / 2 + itemSpacing / 2;
+        const boxSize = Math.min(55, itemSpacing - 10);
+
+        // Color odd/even positions differently to hint at the two rules
+        const oddColor = 0x2a3a5a;   // blue tint for odd positions
+        const evenColor = 0x3a2a4a;  // purple tint for even positions
+        const oddBorder = 0x4a6a8a;
+        const evenBorder = 0x6a4a7a;
+
+        items.forEach((item, i) => {
+            const x = startX + i * itemSpacing;
+            const isQuestion = item === '?';
+            const isOdd = i % 2 === 0; // 0-indexed, so index 0 = position 1 (odd)
+
+            const bgColor = isQuestion ? 0x3a3a6a : (isOdd ? oddColor : evenColor);
+            const borderColor = isQuestion ? 0x6a6aaa : (isOdd ? oddBorder : evenBorder);
+
+            this.add.rectangle(x, seqY, boxSize, boxSize, bgColor)
+                .setStrokeStyle(2, borderColor);
+
+            const fontSize = item.length > 3 ? '18px' : (isQuestion ? '28px' : '22px');
+            this.add.text(x, seqY, item, {
+                fontSize: fontSize,
+                fontFamily: 'Arial, sans-serif',
+                color: isQuestion ? '#888888' : '#ffffff',
+            }).setOrigin(0.5);
+        });
+
+        // Legend for colors
+        this.add.rectangle(width / 2 - 80, seqY + 45, 14, 14, oddColor).setStrokeStyle(1, oddBorder);
+        this.add.text(width / 2 - 68, seqY + 45, 'Rule A', {
+            fontSize: '12px', fontFamily: 'Arial, sans-serif', color: '#4a6a8a',
+        }).setOrigin(0, 0.5);
+
+        this.add.rectangle(width / 2 + 30, seqY + 45, 14, 14, evenColor).setStrokeStyle(1, evenBorder);
+        this.add.text(width / 2 + 42, seqY + 45, 'Rule B', {
+            fontSize: '12px', fontFamily: 'Arial, sans-serif', color: '#6a4a7a',
+        }).setOrigin(0, 0.5);
+
+        // Generate wrong answers
+        const wrongAnswers = new Set();
+        const offsets = [-3, -2, -1, 1, 2, 3, 5, -5, 4, -4, 6, -6, 8, -8];
+        let oi = 0;
+        while (wrongAnswers.size < numChoices - 1 && oi < offsets.length) {
+            const wrong = correctAnswer + offsets[oi];
+            if (wrong !== correctAnswer && wrong > 0) {
+                wrongAnswers.add(wrong);
+            }
+            oi++;
+        }
+
+        const choices = [correctAnswer, ...wrongAnswers];
+        Phaser.Utils.Array.Shuffle(choices);
+
+        // Draw choice buttons
+        const choiceY = height / 2 + 70;
+        const choicePadding = 30;
+        const choiceW = 80;
+        const choiceTotalW = numChoices * choiceW + (numChoices - 1) * choicePadding;
+        const choiceStartX = (width - choiceTotalW) / 2 + choiceW / 2;
+
+        const feedbackText = this.add.text(width / 2, choiceY + 70, '', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        let solved = false;
+
+        choices.forEach((value, i) => {
+            const cx = choiceStartX + i * (choiceW + choicePadding);
+
+            const bg = this.add.rectangle(cx, choiceY, choiceW, 50, 0x2a2a4a)
+                .setStrokeStyle(2, 0x4a4a6a)
+                .setInteractive({ useHandCursor: true });
+
+            this.add.text(cx, choiceY, String(value), {
+                fontSize: '24px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => {
+                if (!solved) bg.setFillStyle(0x4a4a6a);
+            });
+            bg.on('pointerout', () => {
+                if (!solved) bg.setFillStyle(0x2a2a4a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (solved) return;
+
+                if (value === correctAnswer) {
+                    solved = true;
+                    feedbackText.setText('Correct!').setColor('#44dd44');
+
+                    // Replace the '?' with the correct answer
+                    const lastX = startX + (items.length - 1) * itemSpacing;
+                    this.add.rectangle(lastX, seqY, boxSize, boxSize, 0x2a6a2a)
+                        .setStrokeStyle(2, 0x44dd44);
+                    this.add.text(lastX, seqY, String(correctAnswer), {
+                        fontSize: '24px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#44dd44',
+                    }).setOrigin(0.5);
+
+                    this.time.delayedCall(500, () => {
+                        this.scene.start('LevelCompleteScene', { level: this.level });
+                    });
+                } else {
                     bg.setFillStyle(0xaa0000);
                     feedbackText.setText('Wrong! Try again.');
                     this.time.delayedCall(400, () => {
