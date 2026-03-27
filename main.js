@@ -54,6 +54,7 @@ const LevelRegistry = {
     47: { type: 'sorting', config: { count: 12, maxValue: 100, adjacentOnly: true, maxSwaps: 30 } },
     48: { type: 'math', config: { problems: 3, mode: 'algebra', timeLimit: 90 } },
     49: { type: 'light-toggle', config: { size: 6, randomize: true, lockedCells: 4 } },
+    50: { type: 'multi-puzzle', config: { stages: 3, timeLimit: 120 } },
 };
 
 // ============================================================
@@ -255,6 +256,8 @@ class GameScene extends Phaser.Scene {
             this.createTowerOfHanoiPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'jigsaw') {
             this.createJigsawPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'multi-puzzle') {
+            this.createMultiPuzzleBoss(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -3041,12 +3044,454 @@ class GameScene extends Phaser.Scene {
         }, 0x5a3a3a, 0x7a5a5a);
     }
 
+    createMultiPuzzleBoss(config) {
+        const { width, height } = this.scale;
+        const { stages, timeLimit } = config;
+
+        // Shared timer across all stages
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width - 20, 30, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(1, 0.5);
+
+        const stageText = this.add.text(20, 30, 'Stage 1/3', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#44dd44',
+        }).setOrigin(0, 0.5);
+
+        this.add.text(width / 2, 30, 'BOSS LEVEL', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffdd44',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            loop: true,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 10) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    timerEvent.remove(false);
+                    this.multiPuzzleCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.multiPuzzleCleanup = () => {
+            timerEvent.remove(false);
+        };
+
+        let currentStage = 0;
+        // Track dynamic elements per stage for cleanup
+        let stageElements = [];
+
+        const clearStage = () => {
+            stageElements.forEach(el => {
+                if (el && el.destroy) el.destroy();
+            });
+            stageElements = [];
+            // Remove keyboard listeners from maze stage
+            this.input.keyboard.removeAllListeners();
+        };
+
+        const advanceStage = () => {
+            currentStage++;
+            if (currentStage >= stages) {
+                // All stages complete!
+                timerEvent.remove(false);
+                this.multiPuzzleCleanup = null;
+                this.time.delayedCall(500, () => {
+                    this.scene.start('LevelCompleteScene', { level: this.level });
+                });
+                return;
+            }
+            clearStage();
+            stageText.setText(`Stage ${currentStage + 1}/${stages}`);
+            if (currentStage === 1) {
+                startStage2();
+            } else if (currentStage === 2) {
+                startStage3();
+            }
+        };
+
+        // ---- Stage 1: 4x4 Memory Card Game (8 pairs) ----
+        const startStage1 = () => {
+            const rows = 4, cols = 4;
+            const totalCards = rows * cols;
+            const numPairs = totalCards / 2;
+
+            const cardColors = [
+                { name: 'Red', hex: 0xff4444 },
+                { name: 'Blue', hex: 0x4488ff },
+                { name: 'Green', hex: 0x44dd44 },
+                { name: 'Purple', hex: 0xaa44ff },
+                { name: 'Orange', hex: 0xff8844 },
+                { name: 'Cyan', hex: 0x44dddd },
+                { name: 'Yellow', hex: 0xffdd44 },
+                { name: 'Pink', hex: 0xff44aa },
+            ];
+
+            const cardData = [];
+            for (let i = 0; i < numPairs; i++) {
+                cardData.push(cardColors[i], cardColors[i]);
+            }
+            Phaser.Utils.Array.Shuffle(cardData);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 1: Find all matching pairs!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const padding = 12;
+            const availW = width - 40;
+            const availH = height - 180;
+            const cardW = Math.min(100, Math.floor((availW - (cols - 1) * padding) / cols));
+            const cardH = Math.min(120, Math.floor((availH - (rows - 1) * padding) / rows));
+            const gridW = cols * (cardW + padding) - padding;
+            const gridH = rows * (cardH + padding) - padding;
+            const startX = (width - gridW) / 2 + cardW / 2;
+            const startY = (height - gridH) / 2 + 10;
+
+            let firstCard = null;
+            let secondCard = null;
+            let lockBoard = false;
+            let matchesFound = 0;
+
+            const cards = [];
+
+            for (let i = 0; i < totalCards; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = startX + col * (cardW + padding);
+                const y = startY + row * (cardH + padding);
+                const color = cardData[i];
+
+                const back = this.add.rectangle(x, y, cardW, cardH, 0x3a3a6a)
+                    .setInteractive({ useHandCursor: true });
+                const qmFontSize = Math.min(36, Math.floor(cardH * 0.3));
+                const questionMark = this.add.text(x, y, '?', {
+                    fontSize: `${qmFontSize}px`,
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#888888',
+                }).setOrigin(0.5);
+
+                const face = this.add.rectangle(x, y, cardW, cardH, color.hex).setVisible(false);
+                const lblFontSize = Math.min(16, Math.floor(cardW * 0.16));
+                const colorLabel = this.add.text(x, y, color.name, {
+                    fontSize: `${lblFontSize}px`,
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5).setVisible(false);
+
+                stageElements.push(back, questionMark, face, colorLabel);
+
+                const card = { back, questionMark, face, colorLabel, colorName: color.name, flipped: false, matched: false };
+                cards.push(card);
+
+                back.on('pointerover', () => { if (!card.flipped && !card.matched) back.setFillStyle(0x5a5a9a); });
+                back.on('pointerout', () => { if (!card.flipped && !card.matched) back.setFillStyle(0x3a3a6a); });
+
+                back.on('pointerdown', () => {
+                    if (lockBoard || card.flipped || card.matched) return;
+
+                    card.flipped = true;
+                    back.setVisible(false);
+                    questionMark.setVisible(false);
+                    face.setVisible(true);
+                    colorLabel.setVisible(true);
+
+                    if (!firstCard) {
+                        firstCard = card;
+                    } else {
+                        secondCard = card;
+                        lockBoard = true;
+
+                        if (firstCard.colorName === secondCard.colorName) {
+                            firstCard.matched = true;
+                            secondCard.matched = true;
+                            firstCard.face.setAlpha(0.6);
+                            secondCard.face.setAlpha(0.6);
+                            firstCard.colorLabel.setAlpha(0.6);
+                            secondCard.colorLabel.setAlpha(0.6);
+                            firstCard = null;
+                            secondCard = null;
+                            lockBoard = false;
+                            matchesFound++;
+
+                            if (matchesFound >= numPairs) {
+                                this.time.delayedCall(500, () => advanceStage());
+                            }
+                        } else {
+                            const fc = firstCard;
+                            const sc = secondCard;
+                            this.time.delayedCall(800, () => {
+                                fc.flipped = false;
+                                fc.back.setVisible(true);
+                                fc.questionMark.setVisible(true);
+                                fc.face.setVisible(false);
+                                fc.colorLabel.setVisible(false);
+                                sc.flipped = false;
+                                sc.back.setVisible(true);
+                                sc.questionMark.setVisible(true);
+                                sc.face.setVisible(false);
+                                sc.colorLabel.setVisible(false);
+                                firstCard = null;
+                                secondCard = null;
+                                lockBoard = false;
+                            });
+                        }
+                    }
+                });
+            }
+        };
+
+        // ---- Stage 2: 4 Math Problems (mixed add/subtract/multiply, up to 30) ----
+        const startStage2 = () => {
+            const problems = 4;
+            const operations = ['add', 'subtract', 'multiply'];
+            const maxNum = 30;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 2: Solve the math problems!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            let currentProblem = 0;
+
+            const progressText = this.add.text(width / 2, height - 80, `Problem 1/${problems}`, {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressText);
+
+            let problemText = null;
+            let choiceButtons = [];
+            let feedbackText = null;
+
+            const showProblem = () => {
+                if (problemText) { problemText.destroy(); stageElements = stageElements.filter(e => e !== problemText); }
+                choiceButtons.forEach(b => { b.bg.destroy(); b.text.destroy(); stageElements = stageElements.filter(e => e !== b.bg && e !== b.text); });
+                choiceButtons = [];
+                if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); feedbackText = null; }
+
+                progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+                const op = Phaser.Utils.Array.GetRandom(operations);
+                let a, b_val, answer, symbol;
+
+                if (op === 'subtract') {
+                    a = Phaser.Math.Between(2, maxNum);
+                    b_val = Phaser.Math.Between(1, a - 1);
+                    answer = a - b_val;
+                    symbol = '-';
+                } else if (op === 'multiply') {
+                    a = Phaser.Math.Between(2, Math.min(maxNum, 12));
+                    b_val = Phaser.Math.Between(2, Math.min(maxNum, 12));
+                    answer = a * b_val;
+                    symbol = '×';
+                } else {
+                    a = Phaser.Math.Between(1, maxNum - 1);
+                    b_val = Phaser.Math.Between(1, maxNum - a);
+                    answer = a + b_val;
+                    symbol = '+';
+                }
+
+                problemText = this.add.text(width / 2, height / 2 - 80, `${a} ${symbol} ${b_val} = ?`, {
+                    fontSize: '48px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                stageElements.push(problemText);
+
+                const wrongSet = new Set();
+                while (wrongSet.size < 3) {
+                    const offset = Phaser.Math.Between(-5, 5);
+                    const wrong = answer + offset;
+                    if (wrong !== answer && wrong > 0) {
+                        wrongSet.add(wrong);
+                    }
+                }
+
+                const choices = Phaser.Utils.Array.Shuffle([answer, ...wrongSet]);
+                const btnWidth = 120;
+                const btnSpacing = 140;
+                const bStartX = width / 2 - (btnSpacing * 1.5);
+                const btnY = height / 2 + 40;
+
+                choices.forEach((choice, i) => {
+                    const bx = bStartX + i * btnSpacing;
+                    const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(bx, btnY, `${choice}`, {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    stageElements.push(bg, txt);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                    bg.on('pointerdown', () => {
+                        if (choice === answer) {
+                            bg.setFillStyle(0x44dd44);
+                            choiceButtons.forEach(b => b.bg.disableInteractive());
+
+                            if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); }
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#44dd44',
+                            }).setOrigin(0.5);
+                            stageElements.push(feedbackText);
+
+                            currentProblem++;
+                            if (currentProblem >= problems) {
+                                this.time.delayedCall(800, () => advanceStage());
+                            } else {
+                                this.time.delayedCall(800, () => showProblem());
+                            }
+                        } else {
+                            bg.setFillStyle(0xff4444);
+                            bg.disableInteractive();
+                            if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); }
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#ff4444',
+                            }).setOrigin(0.5);
+                            stageElements.push(feedbackText);
+                        }
+                    });
+
+                    choiceButtons.push({ bg, text: txt });
+                });
+            };
+
+            showProblem();
+        };
+
+        // ---- Stage 3: 9x9 Maze ----
+        const startStage3 = () => {
+            const mazeW = 9, mazeH = 9, cellSize = 45;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 3: Navigate the maze!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            // Generate maze using recursive backtracker
+            const maze = Array.from({ length: mazeH }, () => Array(mazeW).fill(1));
+
+            const carveMaze = (r, c) => {
+                maze[r][c] = 0;
+                const dirs = [[0, 2], [0, -2], [2, 0], [-2, 0]];
+                for (let i = dirs.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+                }
+                for (const [dr, dc] of dirs) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 1) {
+                        maze[r + dr / 2][c + dc / 2] = 0;
+                        carveMaze(nr, nc);
+                    }
+                }
+            };
+            carveMaze(0, 0);
+            maze[mazeH - 1][mazeW - 1] = 0;
+
+            const gridW = mazeW * cellSize;
+            const gridH = mazeH * cellSize;
+            const offsetX = (width - gridW) / 2;
+            const offsetY = (height - gridH) / 2 + 10;
+
+            // Draw maze
+            for (let row = 0; row < mazeH; row++) {
+                for (let col = 0; col < mazeW; col++) {
+                    const x = offsetX + col * cellSize + cellSize / 2;
+                    const y = offsetY + row * cellSize + cellSize / 2;
+                    if (maze[row][col] === 1) {
+                        const wall = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, 0x2a2a4a);
+                        stageElements.push(wall);
+                    } else {
+                        const path = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, 0x4a4a6a);
+                        stageElements.push(path);
+                    }
+                }
+            }
+
+            // Exit star
+            const exitX = offsetX + (mazeW - 1) * cellSize + cellSize / 2;
+            const exitY = offsetY + (mazeH - 1) * cellSize + cellSize / 2;
+            const star = this.add.star(exitX, exitY, 5, 10, 22, 0xffdd44);
+            stageElements.push(star);
+
+            // Player
+            let playerCol = 0;
+            let playerRow = 0;
+            const player = this.add.circle(
+                offsetX + cellSize / 2,
+                offsetY + cellSize / 2,
+                cellSize / 3, 0x44dd44
+            );
+            stageElements.push(player);
+
+            let inputLocked = false;
+
+            const movePlayer = (dCol, dRow) => {
+                const newCol = playerCol + dCol;
+                const newRow = playerRow + dRow;
+                if (newCol < 0 || newCol >= mazeW || newRow < 0 || newRow >= mazeH) return;
+                if (maze[newRow][newCol] === 1) return;
+
+                playerCol = newCol;
+                playerRow = newRow;
+                player.setPosition(
+                    offsetX + playerCol * cellSize + cellSize / 2,
+                    offsetY + playerRow * cellSize + cellSize / 2
+                );
+
+                if (playerCol === mazeW - 1 && playerRow === mazeH - 1) {
+                    inputLocked = true;
+                    player.setFillStyle(0xffdd44);
+                    this.time.delayedCall(500, () => advanceStage());
+                }
+            };
+
+            this.input.keyboard.on('keydown-LEFT', () => { if (!inputLocked) movePlayer(-1, 0); });
+            this.input.keyboard.on('keydown-RIGHT', () => { if (!inputLocked) movePlayer(1, 0); });
+            this.input.keyboard.on('keydown-UP', () => { if (!inputLocked) movePlayer(0, -1); });
+            this.input.keyboard.on('keydown-DOWN', () => { if (!inputLocked) movePlayer(0, 1); });
+        };
+
+        // Start with stage 1
+        startStage1();
+    }
+
     handleTimeUp() {
         const { width, height } = this.scale;
 
         if (this.colorMatchCleanup) this.colorMatchCleanup();
         if (this.reactionTimeCleanup) this.reactionTimeCleanup();
         if (this.mathCleanup) this.mathCleanup();
+        if (this.multiPuzzleCleanup) this.multiPuzzleCleanup();
 
         // Disable all interactive objects
         this.children.list.forEach(child => {
