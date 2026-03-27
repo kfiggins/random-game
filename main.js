@@ -57,6 +57,7 @@ const LevelRegistry = {
     50: { type: 'multi-puzzle', config: { stages: 3, timeLimit: 120 } },
     51: { type: 'memory-cards', config: { rows: 6, cols: 6, timeLimit: 40, reshuffleAfter: 2, flipBackSpeed: 400, blackout: true } },
     52: { type: 'maze', config: { width: 25, height: 25, cellSize: 22, fogOfWar: true, viewRadius: 2, enemies: 4, traps: 5 } },
+    53: { type: 'simon-says', config: { sequenceLength: 12, colors: 8, playbackSpeed: 350, replayAllowed: false } },
 };
 
 // ============================================================
@@ -691,6 +692,8 @@ class GameScene extends Phaser.Scene {
             { name: 'Yellow', hex: 0xffdd44, dimHex: 0x887722 },
             { name: 'Orange', hex: 0xff8844, dimHex: 0x884422 },
             { name: 'Purple', hex: 0xaa44ff, dimHex: 0x552288 },
+            { name: 'Pink', hex: 0xff44aa, dimHex: 0x882255 },
+            { name: 'Cyan', hex: 0x44dddd, dimHex: 0x227777 },
         ];
 
         const colorDefs = allColorDefs.slice(0, numColors || 4);
@@ -711,9 +714,9 @@ class GameScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         // Determine grid layout based on number of colors
-        const cols = colorDefs.length <= 4 ? 2 : 3;
+        const cols = colorDefs.length <= 4 ? 2 : colorDefs.length <= 6 ? 3 : 4;
         const rows = Math.ceil(colorDefs.length / cols);
-        const btnSize = colorDefs.length <= 4 ? 120 : 100;
+        const btnSize = colorDefs.length <= 4 ? 120 : colorDefs.length <= 6 ? 100 : 85;
         const gap = 20;
         const gridW = cols * btnSize + (cols - 1) * gap;
         const gridH = rows * btnSize + (rows - 1) * gap;
