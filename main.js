@@ -62,6 +62,7 @@ const LevelRegistry = {
     55: { type: 'math', config: { problems: 5, mode: 'chain', timeLimit: 60 } },
     56: { type: 'color-chain', config: { gridSize: 9, colors: 10, fillBoard: true } },
     57: { type: 'jigsaw', config: { rows: 5, cols: 5, canRotate: true } },
+    58: { type: 'tower-of-hanoi', config: { discs: 7 } },
 };
 
 // ============================================================
