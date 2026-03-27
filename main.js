@@ -68,6 +68,7 @@ const LevelRegistry = {
     61: { type: 'memory-cards', config: { rows: 6, cols: 7, timeLimit: 35, reshuffleAfter: 2, flipBackSpeed: 300, blackout: true, fakeCards: 2 } },
     62: { type: 'sorting', config: { count: 10, maxValue: 200, adjacentOnly: true, maxSwaps: 25, blind: true } },
     63: { type: 'maze', config: { width: 27, height: 27, cellSize: 20, fogOfWar: true, viewRadius: 2, enemies: 5, traps: 6, timeLimit: 120, hasKeys: true, keys: 3 } },
+    64: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, interleaved: true, rules: 3 } },
 };
 
 // ============================================================
@@ -5454,7 +5455,13 @@ class GameScene extends Phaser.Scene {
 
     createInterleavedSequenceLogic(config, sequenceDefs) {
         const { width, height } = this.scale;
-        const { sequenceLength, numChoices } = config;
+        const { sequenceLength, numChoices, rules: numRules } = config;
+        const ruleCount = numRules || 2;
+
+        if (ruleCount === 3) {
+            this.createTripleInterleavedSequenceLogic(config, sequenceDefs);
+            return;
+        }
 
         // Instructions
         this.add.text(width / 2, 50, 'Two rules are interleaved! What comes next?', {
@@ -5605,6 +5612,195 @@ class GameScene extends Phaser.Scene {
                         .setStrokeStyle(2, 0x44dd44);
                     this.add.text(lastX, seqY, String(correctAnswer), {
                         fontSize: '24px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#44dd44',
+                    }).setOrigin(0.5);
+
+                    this.time.delayedCall(500, () => {
+                        this.scene.start('LevelCompleteScene', { level: this.level });
+                    });
+                } else {
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Try again.');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x2a2a4a);
+                    });
+                }
+            });
+        });
+    }
+
+    createTripleInterleavedSequenceLogic(config, sequenceDefs) {
+        const { width, height } = this.scale;
+        const { sequenceLength, numChoices } = config;
+
+        // Instructions
+        this.add.text(width / 2, 40, 'THREE rules are interleaved! What comes next?', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 65, 'Positions 1,4,7,... / 2,5,8,... / 3,6,9,... each follow a different rule.', {
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#666666',
+        }).setOrigin(0.5);
+
+        // Pick three different sequence definitions
+        const shuffled = Phaser.Utils.Array.Shuffle([...sequenceDefs]);
+        const seqDefs = [shuffled[0], shuffled[1], shuffled[2]];
+
+        // Calculate how many terms each sub-sequence needs
+        // Total positions = sequenceLength + 1 (displayed + answer)
+        const totalPositions = sequenceLength + 1;
+        const counts = [0, 0, 0];
+        for (let i = 0; i < totalPositions; i++) {
+            counts[i % 3]++;
+        }
+
+        // Generate each sub-sequence
+        const subSeqs = seqDefs.map((def, r) => def.gen(counts[r] - 1));
+
+        // Interleave the three sequences
+        const fullInterleaved = [];
+        const subIndices = [0, 0, 0];
+        for (let i = 0; i < totalPositions; i++) {
+            const r = i % 3;
+            fullInterleaved.push(subSeqs[r][subIndices[r]++]);
+        }
+
+        const displayed = fullInterleaved.slice(0, sequenceLength);
+        const correctAnswer = fullInterleaved[sequenceLength];
+
+        // Display the sequence with a '?' at the end
+        const seqY = height / 2 - 70;
+        const items = [...displayed.map(String), '?'];
+        const itemSpacing = Math.min(60, (width - 60) / items.length);
+        const totalW = items.length * itemSpacing;
+        const startX = (width - totalW) / 2 + itemSpacing / 2;
+        const boxSize = Math.min(48, itemSpacing - 8);
+
+        // Three distinct colors for the three rules
+        const ruleColors = [
+            { bg: 0x2a3a5a, border: 0x4a6a8a, label: '#4a6a8a' },  // blue - Rule A
+            { bg: 0x3a2a4a, border: 0x6a4a7a, label: '#6a4a7a' },  // purple - Rule B
+            { bg: 0x2a4a3a, border: 0x4a8a6a, label: '#4a8a6a' },  // green - Rule C
+        ];
+
+        items.forEach((item, i) => {
+            const x = startX + i * itemSpacing;
+            const isQuestion = item === '?';
+            const ruleIdx = i % 3;
+
+            const bgColor = isQuestion ? 0x3a3a6a : ruleColors[ruleIdx].bg;
+            const borderColor = isQuestion ? 0x6a6aaa : ruleColors[ruleIdx].border;
+
+            this.add.rectangle(x, seqY, boxSize, boxSize, bgColor)
+                .setStrokeStyle(2, borderColor);
+
+            const fontSize = item.length > 3 ? '16px' : (isQuestion ? '26px' : '20px');
+            this.add.text(x, seqY, item, {
+                fontSize: fontSize,
+                fontFamily: 'Arial, sans-serif',
+                color: isQuestion ? '#888888' : '#ffffff',
+            }).setOrigin(0.5);
+        });
+
+        // Legend for the three rules
+        const legendY = seqY + 42;
+        const legendLabels = ['Rule A', 'Rule B', 'Rule C'];
+        const legendStartX = width / 2 - 120;
+        legendLabels.forEach((label, r) => {
+            const lx = legendStartX + r * 90;
+            this.add.rectangle(lx, legendY, 12, 12, ruleColors[r].bg).setStrokeStyle(1, ruleColors[r].border);
+            this.add.text(lx + 10, legendY, label, {
+                fontSize: '11px', fontFamily: 'Arial, sans-serif', color: ruleColors[r].label,
+            }).setOrigin(0, 0.5);
+        });
+
+        // Generate wrong answers - use values from other sub-sequences to make it tricky
+        const wrongAnswers = new Set();
+        // Add nearby values from the correct answer's sub-sequence
+        const answerRule = sequenceLength % 3;
+        const answerSubSeq = subSeqs[answerRule];
+        const answerSubIdx = subIndices[answerRule] - 1;
+        // Add the next values from the OTHER two sub-sequences as distractors
+        for (let r = 0; r < 3; r++) {
+            if (r !== answerRule && subSeqs[r].length > subIndices[r]) {
+                const nextInOther = subSeqs[r][subIndices[r]];
+                if (nextInOther !== correctAnswer && nextInOther > 0) {
+                    wrongAnswers.add(nextInOther);
+                }
+            }
+        }
+        // Fill remaining with offsets from correct answer
+        const offsets = [-3, -2, -1, 1, 2, 3, 5, -5, 4, -4, 6, -6, 8, -8, 10, -10];
+        let oi = 0;
+        while (wrongAnswers.size < numChoices - 1 && oi < offsets.length) {
+            const wrong = correctAnswer + offsets[oi];
+            if (wrong !== correctAnswer && wrong > 0 && !wrongAnswers.has(wrong)) {
+                wrongAnswers.add(wrong);
+            }
+            oi++;
+        }
+
+        const choices = [correctAnswer, ...[...wrongAnswers].slice(0, numChoices - 1)];
+        Phaser.Utils.Array.Shuffle(choices);
+
+        // Draw choice buttons - use two rows for 6 choices
+        const choiceY = height / 2 + 40;
+        const choicesPerRow = 3;
+        const choiceW = 80;
+        const choicePadding = 20;
+        const rowSpacing = 60;
+
+        const feedbackText = this.add.text(width / 2, choiceY + rowSpacing + 50, '', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        let solved = false;
+
+        choices.forEach((value, i) => {
+            const row = Math.floor(i / choicesPerRow);
+            const col = i % choicesPerRow;
+            const rowTotalW = choicesPerRow * choiceW + (choicesPerRow - 1) * choicePadding;
+            const rowStartX = (width - rowTotalW) / 2 + choiceW / 2;
+            const cx = rowStartX + col * (choiceW + choicePadding);
+            const cy = choiceY + row * rowSpacing;
+
+            const bg = this.add.rectangle(cx, cy, choiceW, 46, 0x2a2a4a)
+                .setStrokeStyle(2, 0x4a4a6a)
+                .setInteractive({ useHandCursor: true });
+
+            this.add.text(cx, cy, String(value), {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => {
+                if (!solved) bg.setFillStyle(0x4a4a6a);
+            });
+            bg.on('pointerout', () => {
+                if (!solved) bg.setFillStyle(0x2a2a4a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (solved) return;
+
+                if (value === correctAnswer) {
+                    solved = true;
+                    feedbackText.setText('Correct!').setColor('#44dd44');
+
+                    // Replace the '?' with the correct answer
+                    const lastX = startX + (items.length - 1) * itemSpacing;
+                    this.add.rectangle(lastX, seqY, boxSize, boxSize, 0x2a6a2a)
+                        .setStrokeStyle(2, 0x44dd44);
+                    this.add.text(lastX, seqY, String(correctAnswer), {
+                        fontSize: '20px',
                         fontFamily: 'Arial, sans-serif',
                         color: '#44dd44',
                     }).setOrigin(0.5);
