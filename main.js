@@ -29,6 +29,7 @@ const LevelRegistry = {
     22: { type: 'color-chain', config: { gridSize: 5, colors: 3 } },
     23: { type: 'simon-says', config: { sequenceLength: 7, colors: 4, playbackSpeed: 500 } },
     24: { type: 'sorting', config: { count: 8, maxValue: 50, maxSwaps: 15 } },
+    25: { type: 'sliding-puzzle', config: { size: 4 } },
 };
 
 // ============================================================
@@ -1822,7 +1823,7 @@ class GameScene extends Phaser.Scene {
     createSlidingPuzzle(config) {
         const { width, height } = this.scale;
         const size = config.size;
-        const tileSize = 90;
+        const tileSize = size <= 3 ? 90 : 70;
         const gap = 4;
         const totalSize = size * tileSize + (size - 1) * gap;
         const startX = (width - totalSize) / 2 + tileSize / 2;
@@ -1844,7 +1845,8 @@ class GameScene extends Phaser.Scene {
 
         // Shuffle by making random valid moves from solved state (ensures solvability)
         const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        for (let i = 0; i < 200; i++) {
+        const shuffleMoves = size <= 3 ? 200 : 500;
+        for (let i = 0; i < shuffleMoves; i++) {
             const validMoves = [];
             for (const [dr, dc] of dirs) {
                 const nr = emptyR + dr;
@@ -1886,7 +1888,7 @@ class GameScene extends Phaser.Scene {
                         .setInteractive({ useHandCursor: true });
 
                     const label = this.add.text(x, y, `${val}`, {
-                        fontSize: '36px',
+                        fontSize: size <= 3 ? '36px' : '28px',
                         fontFamily: 'Arial, sans-serif',
                         fontStyle: 'bold',
                         color: '#ffffff',
