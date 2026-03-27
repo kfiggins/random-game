@@ -82,6 +82,7 @@ const LevelRegistry = {
     75: { type: 'light-toggle', config: { size: 8, randomize: true, lockedCells: 10, chainReaction: true } },
     76: { type: 'jigsaw', config: { rows: 6, cols: 6, canRotate: true, timeLimit: 120 } },
     77: { type: 'math', config: { problems: 4, mode: 'rate-of-change', timeLimit: 120 } },
+    78: { type: 'word-scramble', config: { mode: 'anagram-chain', chainLength: 5, timeLimit: 90 } },
 };
 
 // ============================================================
@@ -6615,6 +6616,11 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
+        if (config.mode === 'anagram-chain') {
+            this.createAnagramChainPuzzle(config);
+            return;
+        }
+
         if (multiWord && wordCount === 2) {
             this.createMultiWordScramblePuzzle(config);
             return;
@@ -7025,6 +7031,275 @@ class GameScene extends Phaser.Scene {
             activeRow = 1;
             updateRowIndicators();
         });
+    }
+
+    createAnagramChainPuzzle(config) {
+        const { width, height } = this.scale;
+        const { chainLength, timeLimit } = config;
+
+        // Predefined anagram chains - each array is a chain of words that are all anagrams of each other
+        const chains = [
+            ['least', 'steal', 'tales', 'slate', 'tesla'],
+            ['notes', 'stone', 'onset', 'tones', 'steno'],
+            ['parts', 'strap', 'traps', 'tarps', 'prats'],
+            ['timer', 'remit', 'merit', 'mitre', 'miter'],
+            ['rates', 'stare', 'tears', 'aster', 'tares'],
+            ['lapse', 'leaps', 'pales', 'sepal', 'pleas'],
+            ['caret', 'trace', 'crate', 'react', 'carte'],
+        ];
+
+        const chain = Phaser.Utils.Array.GetRandom(chains).slice(0, chainLength);
+        let currentStep = 0;
+
+        // Instructions
+        this.add.text(width / 2, 50, 'Anagram Chain', {
+            fontSize: '24px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 80, 'Rearrange the letters to form a new word!', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Progress display
+        const progressText = this.add.text(width / 2, 110, `Chain: 0 / ${chainLength - 1}`, {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#88cc88',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2, height - 70, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 10) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        // Show completed words in the chain
+        const chainDisplayY = 150;
+        const chainWords = [];
+
+        const updateChainDisplay = () => {
+            chainWords.forEach(t => t.destroy());
+            chainWords.length = 0;
+
+            const completedWords = chain.slice(0, currentStep + 1);
+            const displayStr = completedWords.map(w => w.toUpperCase()).join(' → ');
+            const chainText = this.add.text(width / 2, chainDisplayY, displayStr, {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#66aaff',
+                wordWrap: { width: width - 60 },
+                align: 'center',
+            }).setOrigin(0.5);
+            chainWords.push(chainText);
+        };
+
+        // Current word display label
+        this.add.text(width / 2, 195, 'Current letters:', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#888888',
+        }).setOrigin(0.5);
+
+        const tileSize = 56;
+        const tileSpacing = 70;
+        const scrambleY = 240;
+        const answerY = 340;
+
+        // State
+        let answer = [];
+        let letterTiles = [];
+        let answerSlots = [];
+        let feedbackText = null;
+
+        const setupStep = () => {
+            // Clean up previous tiles
+            letterTiles.forEach(t => { t.bg.destroy(); t.txt.destroy(); });
+            answerSlots.forEach(s => { s.destroy(); if (s._txt) s._txt.destroy(); });
+            letterTiles = [];
+            answerSlots = [];
+            answer = [];
+            if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
+
+            const currentWord = chain[currentStep];
+            const targetWord = chain[currentStep + 1];
+            const letters = currentWord.split('');
+
+            // Scramble current word's letters (but not into the current word or the target)
+            let scrambled = [...letters];
+            let attempts = 0;
+            do {
+                scrambled = Phaser.Utils.Array.Shuffle([...letters]);
+                attempts++;
+            } while ((scrambled.join('') === currentWord || scrambled.join('') === targetWord) && attempts < 50);
+
+            const startX = width / 2 - (tileSpacing * (letters.length - 1)) / 2;
+
+            progressText.setText(`Chain: ${currentStep} / ${chainLength - 1}`);
+            updateChainDisplay();
+
+            // Create answer slots
+            for (let i = 0; i < letters.length; i++) {
+                const x = startX + i * tileSpacing;
+                const bg = this.add.rectangle(x, answerY, tileSize, tileSize, 0x3a3a5a)
+                    .setStrokeStyle(2, 0x6a6aaa)
+                    .setInteractive({ useHandCursor: true });
+                const txt = this.add.text(x, answerY, '', {
+                    fontSize: '32px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                bg.on('pointerdown', () => {
+                    const slotIndex = answerSlots.indexOf(bg);
+                    if (answer[slotIndex] !== null && answer[slotIndex] !== undefined) {
+                        const removedEntry = answer[slotIndex];
+                        answer[slotIndex] = null;
+                        txt.setText('');
+                        removedEntry.bg.setVisible(true);
+                        removedEntry.txt.setVisible(true);
+                        removedEntry.bg.setInteractive({ useHandCursor: true });
+                    }
+                });
+
+                answerSlots.push(bg);
+                bg._txt = txt;
+            }
+
+            // Create scrambled letter tiles
+            for (let i = 0; i < scrambled.length; i++) {
+                const x = startX + i * tileSpacing;
+                const bg = this.add.rectangle(x, scrambleY, tileSize, tileSize, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true });
+                const txt = this.add.text(x, scrambleY, scrambled[i].toUpperCase(), {
+                    fontSize: '32px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                bg.on('pointerover', () => { if (bg.visible) bg.setFillStyle(0x6a6aaa); });
+                bg.on('pointerout', () => { if (bg.visible) bg.setFillStyle(0x4a4a8a); });
+
+                const tile = { bg, txt, letter: scrambled[i] };
+                letterTiles.push(tile);
+
+                bg.on('pointerdown', () => {
+                    let emptyIndex = -1;
+                    for (let j = 0; j < answer.length; j++) {
+                        if (answer[j] === null) { emptyIndex = j; break; }
+                    }
+                    if (emptyIndex === -1) {
+                        emptyIndex = answer.length;
+                    }
+                    if (emptyIndex >= letters.length) return;
+
+                    answer[emptyIndex] = tile;
+                    answerSlots[emptyIndex]._txt.setText(tile.letter.toUpperCase());
+
+                    bg.setVisible(false);
+                    txt.setVisible(false);
+                    bg.disableInteractive();
+
+                    // Check if answer is complete
+                    const currentAnswer = answer.map(entry => entry ? entry.letter : '').join('');
+                    if (currentAnswer.length === letters.length && !answer.includes(null)) {
+                        if (currentAnswer === targetWord) {
+                            // Correct!
+                            answerSlots.forEach(slot => {
+                                slot.setFillStyle(0x44dd44);
+                                slot.disableInteractive();
+                            });
+                            letterTiles.forEach(t => t.bg.disableInteractive());
+
+                            currentStep++;
+
+                            if (currentStep >= chainLength - 1) {
+                                // Chain complete!
+                                timerEvent.remove(false);
+                                progressText.setText(`Chain: ${currentStep} / ${chainLength - 1}`);
+                                updateChainDisplay();
+
+                                feedbackText = this.add.text(width / 2, answerY + 60, 'Chain Complete!', {
+                                    fontSize: '28px',
+                                    fontFamily: 'Arial, sans-serif',
+                                    color: '#44dd44',
+                                }).setOrigin(0.5);
+
+                                this.time.delayedCall(1000, () => {
+                                    this.scene.start('LevelCompleteScene', { level: this.level });
+                                });
+                            } else {
+                                // Next step in chain
+                                feedbackText = this.add.text(width / 2, answerY + 60, 'Correct! Next word...', {
+                                    fontSize: '20px',
+                                    fontFamily: 'Arial, sans-serif',
+                                    color: '#44dd44',
+                                }).setOrigin(0.5);
+
+                                this.time.delayedCall(800, () => {
+                                    setupStep();
+                                });
+                            }
+                        } else {
+                            // Wrong answer - must be a valid anagram but not the target
+                            answerSlots.forEach(slot => slot.setFillStyle(0xff4444));
+                            feedbackText = this.add.text(width / 2, answerY + 60, 'Not the right word! Try again.', {
+                                fontSize: '18px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#ff6666',
+                            }).setOrigin(0.5);
+
+                            this.time.delayedCall(500, () => {
+                                answerSlots.forEach(slot => slot.setFillStyle(0x3a3a5a));
+                                if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
+                            });
+                        }
+                    }
+                });
+            }
+
+            // Initialize answer array
+            for (let i = 0; i < letters.length; i++) {
+                answer.push(null);
+            }
+        };
+
+        // Clear button
+        this.createButton(width / 2, answerY + 120, 'Clear', () => {
+            for (let i = 0; i < answer.length; i++) {
+                if (answer[i] !== null) {
+                    answer[i].bg.setVisible(true);
+                    answer[i].txt.setVisible(true);
+                    answer[i].bg.setInteractive({ useHandCursor: true });
+                    answer[i] = null;
+                    answerSlots[i]._txt.setText('');
+                }
+            }
+            if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
+        });
+
+        // Start the first step
+        setupStep();
     }
 
     createCrosswordPuzzle(config) {
