@@ -23,6 +23,7 @@ const LevelRegistry = {
     16: { type: 'sequence-logic', config: { sequenceLength: 5, numChoices: 4 } },
     17: { type: 'reaction-time', config: { targets: 8, targetSize: 40, stayTime: 2000, timeLimit: 20, hasDecoys: true } },
     18: { type: 'math', config: { problems: 5, operations: ['add', 'subtract'], maxNum: 20, timeLimit: 45 } },
+    19: { type: 'word-scramble', config: { wordLength: 6, showHint: false } },
 };
 
 // ============================================================
@@ -1470,9 +1471,13 @@ class GameScene extends Phaser.Scene {
 
     createWordScramblePuzzle(config) {
         const { width, height } = this.scale;
-        const { showHint } = config;
+        const { wordLength, showHint } = config;
 
-        const words = ['game', 'play', 'code', 'fish', 'star', 'moon', 'tree', 'bird', 'cake', 'lion'];
+        const wordsByLength = {
+            4: ['game', 'play', 'code', 'fish', 'star', 'moon', 'tree', 'bird', 'cake', 'lion'],
+            6: ['puzzle', 'knight', 'bridge', 'castle', 'forest', 'garden', 'rocket', 'planet', 'silver', 'frozen'],
+        };
+        const words = wordsByLength[wordLength] || wordsByLength[4];
         const targetWord = Phaser.Utils.Array.GetRandom(words);
         const letters = targetWord.split('');
 
