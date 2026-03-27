@@ -49,6 +49,7 @@ const LevelRegistry = {
     42: { type: 'color-chain', config: { gridSize: 7, colors: 8, fillBoard: true } },
     43: { type: 'memory-cards', config: { rows: 5, cols: 6, timeLimit: 35, reshuffleAfter: 3, flipBackSpeed: 500 } },
     44: { type: 'jigsaw', config: { rows: 4, cols: 4, canRotate: true } },
+    45: { type: 'maze', config: { width: 23, height: 23, cellSize: 24, fogOfWar: true, viewRadius: 3, enemies: 3 } },
 };
 
 // ============================================================
@@ -950,7 +951,7 @@ class GameScene extends Phaser.Scene {
 
     createMazePuzzle(config) {
         const { width, height } = this.scale;
-        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius } = config;
+        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies } = config;
 
         // Generate maze using recursive backtracker algorithm
         // 0 = path, 1 = wall, 2+ = door (blocked until key collected)
@@ -1091,7 +1092,7 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        const instrText = hasKeys ? 'Collect keys to unlock doors! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
+        const instrText = hasKeys ? 'Collect keys to unlock doors! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
         this.add.text(width / 2, 30, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
@@ -1204,6 +1205,153 @@ class GameScene extends Phaser.Scene {
         };
         updateFog();
 
+        // Enemy setup - patrolling red dots
+        const enemyData = [];
+        if (numEnemies && numEnemies > 0) {
+            // Collect corridor cells (path cells with exactly 2 path neighbors) for patrol routes
+            const patrolCandidates = [];
+            for (let r = 0; r < mazeH; r++) {
+                for (let c = 0; c < mazeW; c++) {
+                    if (maze[r][c] !== 0) continue;
+                    if (r === 0 && c === 0) continue; // skip start
+                    if (r === mazeH - 1 && c === mazeW - 1) continue; // skip exit
+                    patrolCandidates.push({ r, c });
+                }
+            }
+
+            // Use BFS distance from start to spread enemies throughout the maze
+            const eDist = Array.from({ length: mazeH }, () => Array(mazeW).fill(-1));
+            eDist[0][0] = 0;
+            const eq = [{ r: 0, c: 0 }];
+            let eqi = 0;
+            while (eqi < eq.length) {
+                const { r, c } = eq[eqi++];
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0 && eDist[nr][nc] === -1) {
+                        eDist[nr][nc] = eDist[r][c] + 1;
+                        eq.push({ r: nr, c: nc });
+                    }
+                }
+            }
+
+            patrolCandidates.sort((a, b) => eDist[a.r][a.c] - eDist[b.r][b.c]);
+
+            // Place enemies spread across the maze, each with a patrol path
+            for (let e = 0; e < numEnemies; e++) {
+                // Pick a starting cell spread evenly through the sorted candidates
+                const startIdx = Math.floor(patrolCandidates.length * (0.3 + e * 0.2));
+                const startCell = patrolCandidates[Math.min(startIdx, patrolCandidates.length - 1)];
+                if (!startCell) continue;
+
+                // Build patrol path: walk along corridor from start cell
+                const patrolPath = [{ r: startCell.r, c: startCell.c }];
+                const visited = new Set();
+                visited.add(`${startCell.r},${startCell.c}`);
+                let cur = { r: startCell.r, c: startCell.c };
+                const patrolLen = 4 + Math.floor(Math.random() * 4); // 4-7 cells long
+
+                for (let step = 0; step < patrolLen; step++) {
+                    const neighbors = [];
+                    for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+                        const nr = cur.r + dr;
+                        const nc = cur.c + dc;
+                        if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0 && !visited.has(`${nr},${nc}`)) {
+                            // Don't patrol through start or exit
+                            if (nr === 0 && nc === 0) continue;
+                            if (nr === mazeH - 1 && nc === mazeW - 1) continue;
+                            neighbors.push({ r: nr, c: nc });
+                        }
+                    }
+                    if (neighbors.length === 0) break;
+                    const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    patrolPath.push(next);
+                    visited.add(`${next.r},${next.c}`);
+                    cur = next;
+                }
+
+                if (patrolPath.length < 2) continue; // need at least 2 cells for patrol
+
+                const ex = offsetX + startCell.c * cellSize + cellSize / 2;
+                const ey = offsetY + startCell.r * cellSize + cellSize / 2;
+                const enemySprite = this.add.circle(ex, ey, cellSize / 3, 0xff2222);
+                if (fogOfWar) enemySprite.setDepth(15);
+
+                enemyData.push({
+                    sprite: enemySprite,
+                    path: patrolPath,
+                    pathIndex: 0,
+                    direction: 1, // 1 = forward, -1 = backward along path
+                    row: startCell.r,
+                    col: startCell.c,
+                });
+            }
+        }
+
+        // Update enemy fog visibility
+        const updateEnemyVisibility = () => {
+            if (!fogOfWar) return;
+            for (const enemy of enemyData) {
+                const dist = Math.abs(enemy.row - playerRow) + Math.abs(enemy.col - playerCol);
+                enemy.sprite.setVisible(dist <= viewRadius);
+            }
+        };
+        updateEnemyVisibility();
+
+        // Check if any enemy is on the player's cell
+        const checkEnemyCollision = () => {
+            for (const enemy of enemyData) {
+                if (enemy.row === playerRow && enemy.col === playerCol) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // Respawn player at start (don't reset keys)
+        const respawnPlayer = () => {
+            playerCol = 0;
+            playerRow = 0;
+            player.setPosition(
+                offsetX + cellSize / 2,
+                offsetY + cellSize / 2
+            );
+            updateFog();
+            updateEnemyVisibility();
+        };
+
+        // Enemy patrol timer
+        if (enemyData.length > 0) {
+            this.time.addEvent({
+                delay: 500,
+                loop: true,
+                callback: () => {
+                    if (inputLocked) return;
+                    for (const enemy of enemyData) {
+                        // Move to next cell in patrol path
+                        const nextIndex = enemy.pathIndex + enemy.direction;
+                        if (nextIndex >= enemy.path.length || nextIndex < 0) {
+                            enemy.direction *= -1; // reverse direction
+                        }
+                        enemy.pathIndex = Math.max(0, Math.min(enemy.path.length - 1, enemy.pathIndex + enemy.direction));
+                        const cell = enemy.path[enemy.pathIndex];
+                        enemy.row = cell.r;
+                        enemy.col = cell.c;
+                        enemy.sprite.setPosition(
+                            offsetX + cell.c * cellSize + cellSize / 2,
+                            offsetY + cell.r * cellSize + cellSize / 2
+                        );
+                    }
+                    updateEnemyVisibility();
+                    // Check if enemy moved onto player
+                    if (checkEnemyCollision()) {
+                        respawnPlayer();
+                    }
+                },
+            });
+        }
+
         // Arrow key input
         const cursors = this.input.keyboard.createCursorKeys();
         let inputLocked = false;
@@ -1234,6 +1382,13 @@ class GameScene extends Phaser.Scene {
 
             // Update fog of war
             updateFog();
+            updateEnemyVisibility();
+
+            // Check enemy collision after player moves
+            if (checkEnemyCollision()) {
+                respawnPlayer();
+                return;
+            }
 
             // Check key pickup
             for (let i = 0; i < keyCells.length; i++) {
