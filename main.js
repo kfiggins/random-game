@@ -64,6 +64,7 @@ const LevelRegistry = {
     57: { type: 'jigsaw', config: { rows: 5, cols: 5, canRotate: true } },
     58: { type: 'tower-of-hanoi', config: { discs: 7 } },
     59: { type: 'light-toggle', config: { size: 7, randomize: true, lockedCells: 8 } },
+    60: { type: 'multi-puzzle', config: { stages: 4, timeLimit: 150 } },
 };
 
 // ============================================================
@@ -3442,7 +3443,7 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
         }).setOrigin(1, 0.5);
 
-        const stageText = this.add.text(20, 30, 'Stage 1/3', {
+        const stageText = this.add.text(20, 30, `Stage 1/${stages}`, {
             fontSize: '22px',
             fontFamily: 'Arial, sans-serif',
             color: '#44dd44',
@@ -3501,11 +3502,7 @@ class GameScene extends Phaser.Scene {
             }
             clearStage();
             stageText.setText(`Stage ${currentStage + 1}/${stages}`);
-            if (currentStage === 1) {
-                startStage2();
-            } else if (currentStage === 2) {
-                startStage3();
-            }
+            stageFunctions[currentStage]();
         };
 
         // ---- Stage 1: 4x4 Memory Card Game (8 pairs) ----
@@ -3867,8 +3864,546 @@ class GameScene extends Phaser.Scene {
             this.input.keyboard.on('keydown-DOWN', () => { if (!inputLocked) movePlayer(0, 1); });
         };
 
+        // ---- Level 60 Stage 1: Simon Says (6-step sequence) ----
+        const startL60Stage1 = () => {
+            const sequenceLength = 6;
+            const numColors = 4;
+            const playbackSpeed = 600;
+
+            const allColorDefs = [
+                { name: 'Red', hex: 0xff4444, dimHex: 0x882222 },
+                { name: 'Blue', hex: 0x4488ff, dimHex: 0x224488 },
+                { name: 'Green', hex: 0x44dd44, dimHex: 0x227722 },
+                { name: 'Yellow', hex: 0xffdd44, dimHex: 0x887722 },
+            ];
+
+            const colorDefs = allColorDefs.slice(0, numColors);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 1: Watch the sequence!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const progressText = this.add.text(width / 2, height - 80, '', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressText);
+
+            const cols = 2;
+            const rows = 2;
+            const btnSize = 120;
+            const gap = 20;
+            const gridW = cols * btnSize + (cols - 1) * gap;
+            const gridH = rows * btnSize + (rows - 1) * gap;
+            const gridStartX = width / 2 - gridW / 2 + btnSize / 2;
+            const gridStartY = height / 2 - gridH / 2 + btnSize / 2;
+
+            const buttons = colorDefs.map((colorDef, i) => {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = gridStartX + col * (btnSize + gap);
+                const y = gridStartY + row * (btnSize + gap);
+
+                const rect = this.add.rectangle(x, y, btnSize, btnSize, colorDef.dimHex)
+                    .setInteractive({ useHandCursor: true });
+                const label = this.add.text(x, y, colorDef.name, {
+                    fontSize: '18px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                stageElements.push(rect, label);
+
+                return { rect, colorDef };
+            });
+
+            const sequence = [];
+            for (let i = 0; i < sequenceLength; i++) {
+                sequence.push(Phaser.Math.Between(0, colorDefs.length - 1));
+            }
+
+            let playerIndex = 0;
+            let inputEnabled = false;
+
+            const lightUp = (btnIndex, duration) => {
+                const btn = buttons[btnIndex];
+                btn.rect.setFillStyle(btn.colorDef.hex);
+                this.time.delayedCall(duration * 0.6, () => {
+                    btn.rect.setFillStyle(btn.colorDef.dimHex);
+                });
+            };
+
+            const playSequence = () => {
+                inputEnabled = false;
+                playerIndex = 0;
+                instrText.setText('Stage 1: Watch the sequence!');
+                progressText.setText('');
+
+                sequence.forEach((btnIndex, i) => {
+                    this.time.delayedCall(playbackSpeed * (i + 1), () => {
+                        lightUp(btnIndex, playbackSpeed);
+                    });
+                });
+
+                this.time.delayedCall(playbackSpeed * (sequence.length + 1), () => {
+                    inputEnabled = true;
+                    instrText.setText('Stage 1: Your turn! Repeat the sequence.');
+                    progressText.setText(`0/${sequenceLength}`);
+                });
+            };
+
+            buttons.forEach((btn, btnIndex) => {
+                btn.rect.on('pointerdown', () => {
+                    if (!inputEnabled) return;
+
+                    btn.rect.setFillStyle(btn.colorDef.hex);
+                    this.time.delayedCall(200, () => {
+                        btn.rect.setFillStyle(btn.colorDef.dimHex);
+                    });
+
+                    if (sequence[playerIndex] === btnIndex) {
+                        playerIndex++;
+                        progressText.setText(`${playerIndex}/${sequenceLength}`);
+
+                        if (playerIndex >= sequenceLength) {
+                            inputEnabled = false;
+                            instrText.setText('Correct!');
+                            this.time.delayedCall(500, () => advanceStage());
+                        }
+                    } else {
+                        inputEnabled = false;
+                        instrText.setText('Wrong! Watch again...');
+                        progressText.setText('');
+                        this.time.delayedCall(1000, () => {
+                            playSequence();
+                        });
+                    }
+                });
+            });
+
+            playSequence();
+        };
+
+        // ---- Level 60 Stage 2: Sliding Puzzle (3x3) ----
+        const startL60Stage2 = () => {
+            const size = 3;
+            const tileSize = 90;
+            const tileGap = 4;
+            const totalSize = size * tileSize + (size - 1) * tileGap;
+            const puzzleStartX = (width - totalSize) / 2 + tileSize / 2;
+            const puzzleStartY = (height - totalSize) / 2 + tileSize / 2 - 10;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 2: Solve the sliding puzzle!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const board = [];
+            for (let r = 0; r < size; r++) {
+                board[r] = [];
+                for (let c = 0; c < size; c++) {
+                    const val = r * size + c + 1;
+                    board[r][c] = val === size * size ? 0 : val;
+                }
+            }
+
+            let emptyR = size - 1;
+            let emptyC = size - 1;
+
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            for (let i = 0; i < 200; i++) {
+                const validMoves = [];
+                for (const [dr, dc] of dirs) {
+                    const nr = emptyR + dr;
+                    const nc = emptyC + dc;
+                    if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
+                        validMoves.push([nr, nc]);
+                    }
+                }
+                const [mr, mc] = validMoves[Math.floor(Math.random() * validMoves.length)];
+                board[emptyR][emptyC] = board[mr][mc];
+                board[mr][mc] = 0;
+                emptyR = mr;
+                emptyC = mc;
+            }
+
+            let moveCount = 0;
+            const moveText = this.add.text(width / 2, height - 80, 'Moves: 0', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(moveText);
+
+            let tiles = [];
+
+            const renderBoard = () => {
+                tiles.forEach(t => {
+                    if (t.bg) t.bg.destroy();
+                    if (t.label) t.label.destroy();
+                    stageElements = stageElements.filter(e => e !== t.bg && e !== t.label);
+                });
+                tiles = [];
+
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const val = board[r][c];
+                        if (val === 0) continue;
+
+                        const x = puzzleStartX + c * (tileSize + tileGap);
+                        const y = puzzleStartY + r * (tileSize + tileGap);
+
+                        const bg = this.add.rectangle(x, y, tileSize, tileSize, 0x4a6a9a)
+                            .setInteractive({ useHandCursor: true });
+                        const label = this.add.text(x, y, `${val}`, {
+                            fontSize: '36px',
+                            fontFamily: 'Arial, sans-serif',
+                            fontStyle: 'bold',
+                            color: '#ffffff',
+                        }).setOrigin(0.5);
+                        stageElements.push(bg, label);
+
+                        bg.on('pointerdown', () => {
+                            const dr = Math.abs(r - emptyR);
+                            const dc = Math.abs(c - emptyC);
+                            if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                                board[emptyR][emptyC] = board[r][c];
+                                board[r][c] = 0;
+                                emptyR = r;
+                                emptyC = c;
+                                moveCount++;
+                                moveText.setText(`Moves: ${moveCount}`);
+                                renderBoard();
+
+                                if (this.checkSlidingPuzzleSolved(board, size)) {
+                                    this.time.delayedCall(300, () => advanceStage());
+                                }
+                            }
+                        });
+
+                        bg.on('pointerover', () => {
+                            const dr = Math.abs(r - emptyR);
+                            const dc = Math.abs(c - emptyC);
+                            if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                                bg.setFillStyle(0x6a8aba);
+                            }
+                        });
+                        bg.on('pointerout', () => bg.setFillStyle(0x4a6a9a));
+
+                        tiles.push({ bg, label });
+                    }
+                }
+            };
+
+            renderBoard();
+        };
+
+        // ---- Level 60 Stage 3: 5 Math Problems (multiply/divide) ----
+        const startL60Stage3 = () => {
+            const problems = 5;
+            const operations = ['multiply', 'divide'];
+            const maxNum = 12;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 3: Solve the math problems!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            let currentProblem = 0;
+
+            const progressMathText = this.add.text(width / 2, height - 80, `Problem 1/${problems}`, {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressMathText);
+
+            let problemText = null;
+            let choiceButtons = [];
+            let feedbackText = null;
+
+            const showProblem = () => {
+                if (problemText) { problemText.destroy(); stageElements = stageElements.filter(e => e !== problemText); }
+                choiceButtons.forEach(b => { b.bg.destroy(); b.text.destroy(); stageElements = stageElements.filter(e => e !== b.bg && e !== b.text); });
+                choiceButtons = [];
+                if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); feedbackText = null; }
+
+                progressMathText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+                const op = Phaser.Utils.Array.GetRandom(operations);
+                let a, b_val, answer, symbol;
+
+                if (op === 'divide') {
+                    b_val = Phaser.Math.Between(2, maxNum);
+                    answer = Phaser.Math.Between(2, maxNum);
+                    a = b_val * answer;
+                    symbol = '÷';
+                } else {
+                    a = Phaser.Math.Between(2, maxNum);
+                    b_val = Phaser.Math.Between(2, maxNum);
+                    answer = a * b_val;
+                    symbol = '×';
+                }
+
+                problemText = this.add.text(width / 2, height / 2 - 80, `${a} ${symbol} ${b_val} = ?`, {
+                    fontSize: '48px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                stageElements.push(problemText);
+
+                const wrongSet = new Set();
+                while (wrongSet.size < 3) {
+                    const offset = Phaser.Math.Between(-5, 5);
+                    const wrong = answer + offset;
+                    if (wrong !== answer && wrong > 0) {
+                        wrongSet.add(wrong);
+                    }
+                }
+
+                const choices = Phaser.Utils.Array.Shuffle([answer, ...wrongSet]);
+                const btnWidth = 120;
+                const btnSpacing = 140;
+                const bStartX = width / 2 - (btnSpacing * 1.5);
+                const btnY = height / 2 + 40;
+
+                choices.forEach((choice, i) => {
+                    const bx = bStartX + i * btnSpacing;
+                    const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(bx, btnY, `${choice}`, {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    stageElements.push(bg, txt);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                    bg.on('pointerdown', () => {
+                        if (choice === answer) {
+                            bg.setFillStyle(0x44dd44);
+                            choiceButtons.forEach(b => b.bg.disableInteractive());
+
+                            if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); }
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#44dd44',
+                            }).setOrigin(0.5);
+                            stageElements.push(feedbackText);
+
+                            currentProblem++;
+                            if (currentProblem >= problems) {
+                                this.time.delayedCall(800, () => advanceStage());
+                            } else {
+                                this.time.delayedCall(800, () => showProblem());
+                            }
+                        } else {
+                            bg.setFillStyle(0xff4444);
+                            bg.disableInteractive();
+                            if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); }
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#ff4444',
+                            }).setOrigin(0.5);
+                            stageElements.push(feedbackText);
+                        }
+                    });
+
+                    choiceButtons.push({ bg, text: txt });
+                });
+            };
+
+            showProblem();
+        };
+
+        // ---- Level 60 Stage 4: Word Scramble (6-letter word, no hint) ----
+        const startL60Stage4 = () => {
+            const wordsByLength6 = ['puzzle', 'knight', 'bridge', 'castle', 'forest', 'garden', 'rocket', 'planet', 'silver', 'frozen'];
+            const targetWord = Phaser.Utils.Array.GetRandom(wordsByLength6);
+            const letters = targetWord.split('');
+
+            let scrambled = [...letters];
+            let scrambleAttempts = 0;
+            do {
+                scrambled = Phaser.Utils.Array.Shuffle([...letters]);
+                scrambleAttempts++;
+            } while (scrambled.join('') === targetWord && scrambleAttempts < 20);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 4: Unscramble the word!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const letterSize = 50;
+            const letterGap = 10;
+            const totalW = scrambled.length * letterSize + (scrambled.length - 1) * letterGap;
+            const letStartX = width / 2 - totalW / 2 + letterSize / 2;
+            const letY = height / 2 - 60;
+
+            scrambled.forEach((letter, i) => {
+                const x = letStartX + i * (letterSize + letterGap);
+                const bg = this.add.rectangle(x, letY, letterSize, letterSize, 0x4a4a8a);
+                const txt = this.add.text(x, letY, letter.toUpperCase(), {
+                    fontSize: '28px',
+                    fontFamily: 'Arial, sans-serif',
+                    fontStyle: 'bold',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                stageElements.push(bg, txt);
+            });
+
+            let currentGuess = '';
+            const guessText = this.add.text(width / 2, height / 2 + 30, '_ '.repeat(targetWord.length).trim(), {
+                fontSize: '36px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+                letterSpacing: 8,
+            }).setOrigin(0.5);
+            stageElements.push(guessText);
+
+            const feedbackWordText = this.add.text(width / 2, height / 2 + 80, '', {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ff4444',
+            }).setOrigin(0.5);
+            stageElements.push(feedbackWordText);
+
+            const updateGuessDisplay = () => {
+                const display = [];
+                for (let i = 0; i < targetWord.length; i++) {
+                    display.push(i < currentGuess.length ? currentGuess[i].toUpperCase() : '_');
+                }
+                guessText.setText(display.join(' '));
+            };
+
+            // Keyboard input
+            this.input.keyboard.on('keydown', (event) => {
+                const key = event.key.toLowerCase();
+                if (key === 'backspace') {
+                    currentGuess = currentGuess.slice(0, -1);
+                    feedbackWordText.setText('');
+                    updateGuessDisplay();
+                } else if (key === 'enter') {
+                    if (currentGuess.length === targetWord.length) {
+                        if (currentGuess === targetWord) {
+                            feedbackWordText.setColor('#44dd44');
+                            feedbackWordText.setText('Correct!');
+                            this.time.delayedCall(500, () => advanceStage());
+                        } else {
+                            feedbackWordText.setColor('#ff4444');
+                            feedbackWordText.setText('Wrong! Try again.');
+                            currentGuess = '';
+                            updateGuessDisplay();
+                        }
+                    }
+                } else if (/^[a-z]$/.test(key) && currentGuess.length < targetWord.length) {
+                    currentGuess += key;
+                    updateGuessDisplay();
+                }
+            });
+
+            // On-screen keyboard for touch support
+            const kbKeys = 'qwertyuiopasdfghjklzxcvbnm'.split('');
+            const kbRows = [
+                kbKeys.slice(0, 10),
+                kbKeys.slice(10, 19),
+                kbKeys.slice(19, 26),
+            ];
+            const kbKeySize = 32;
+            const kbGap = 4;
+            const kbStartY = height / 2 + 120;
+
+            kbRows.forEach((row, ri) => {
+                const rowW = row.length * kbKeySize + (row.length - 1) * kbGap;
+                const rowStartX = width / 2 - rowW / 2 + kbKeySize / 2;
+                const ry = kbStartY + ri * (kbKeySize + kbGap);
+
+                row.forEach((k, ki) => {
+                    const kx = rowStartX + ki * (kbKeySize + kbGap);
+                    const kbg = this.add.rectangle(kx, ry, kbKeySize, kbKeySize, 0x3a3a6a)
+                        .setInteractive({ useHandCursor: true });
+                    const ktxt = this.add.text(kx, ry, k.toUpperCase(), {
+                        fontSize: '16px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    stageElements.push(kbg, ktxt);
+
+                    kbg.on('pointerover', () => kbg.setFillStyle(0x5a5a8a));
+                    kbg.on('pointerout', () => kbg.setFillStyle(0x3a3a6a));
+                    kbg.on('pointerdown', () => {
+                        if (currentGuess.length < targetWord.length) {
+                            currentGuess += k;
+                            updateGuessDisplay();
+                        }
+                    });
+                });
+            });
+
+            // Backspace and Enter buttons
+            const actionY = kbStartY + 3 * (kbKeySize + kbGap);
+            const delBg = this.add.rectangle(width / 2 - 70, actionY, 100, 36, 0x5a3a3a)
+                .setInteractive({ useHandCursor: true });
+            const delTxt = this.add.text(width / 2 - 70, actionY, 'DELETE', {
+                fontSize: '14px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(delBg, delTxt);
+            delBg.on('pointerover', () => delBg.setFillStyle(0x7a5a5a));
+            delBg.on('pointerout', () => delBg.setFillStyle(0x5a3a3a));
+            delBg.on('pointerdown', () => {
+                currentGuess = currentGuess.slice(0, -1);
+                feedbackWordText.setText('');
+                updateGuessDisplay();
+            });
+
+            const enterBg = this.add.rectangle(width / 2 + 70, actionY, 100, 36, 0x3a5a3a)
+                .setInteractive({ useHandCursor: true });
+            const enterTxt = this.add.text(width / 2 + 70, actionY, 'ENTER', {
+                fontSize: '14px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(enterBg, enterTxt);
+            enterBg.on('pointerover', () => enterBg.setFillStyle(0x5a7a5a));
+            enterBg.on('pointerout', () => enterBg.setFillStyle(0x3a5a3a));
+            enterBg.on('pointerdown', () => {
+                if (currentGuess.length === targetWord.length) {
+                    if (currentGuess === targetWord) {
+                        feedbackWordText.setColor('#44dd44');
+                        feedbackWordText.setText('Correct!');
+                        this.time.delayedCall(500, () => advanceStage());
+                    } else {
+                        feedbackWordText.setColor('#ff4444');
+                        feedbackWordText.setText('Wrong! Try again.');
+                        currentGuess = '';
+                        updateGuessDisplay();
+                    }
+                }
+            });
+        };
+
+        // Build stage functions array based on level
+        const stageFunctions = this.level === 60
+            ? [startL60Stage1, startL60Stage2, startL60Stage3, startL60Stage4]
+            : [startStage1, startStage2, startStage3];
+
         // Start with stage 1
-        startStage1();
+        stageFunctions[0]();
     }
 
     handleTimeUp() {
