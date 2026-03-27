@@ -88,6 +88,7 @@ const LevelRegistry = {
     81: { type: 'color-chain', config: { gridSize: 12, colors: 15, fillBoard: true, timeLimit: 240 } },
     82: { type: 'reaction-time', config: { targets: 20, targetSize: 15, stayTime: 800, timeLimit: 15, hasDecoys: true, moving: true, shrinking: true, decoyRatio: 2 } },
     83: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, mode: 'recursive' } },
+    84: { type: 'maze', config: { width: 35, height: 35, cellSize: 16, fogOfWar: true, viewRadius: 2, enemies: 8, traps: 10, timeLimit: 75, hasKeys: true, keys: 5, teleporters: 3, darkZones: true } },
 };
 
 // ============================================================
@@ -1093,7 +1094,7 @@ class GameScene extends Phaser.Scene {
 
     createMazePuzzle(config) {
         const { width, height } = this.scale;
-        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps, timeLimit, teleporters: numTeleporters } = config;
+        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps, timeLimit, teleporters: numTeleporters, darkZones } = config;
 
         // Generate maze using recursive backtracker algorithm
         // 0 = path, 1 = wall, 2+ = door (blocked until key collected)
@@ -1126,6 +1127,7 @@ class GameScene extends Phaser.Scene {
             { name: 'Blue', hex: 0x4488ff, doorHex: 0x224488 },
             { name: 'Yellow', hex: 0xffdd44, doorHex: 0x887722 },
             { name: 'Purple', hex: 0xcc44ff, doorHex: 0x662288 },
+            { name: 'Green', hex: 0x44dd44, doorHex: 0x228822 },
         ];
 
         // Keys and doors state
@@ -1234,7 +1236,7 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        const instrText = (hasKeys && numEnemies && numTraps && numTeleporters) ? 'Everything! Keys, enemies, traps & portals! Reach the star!' : (hasKeys && numEnemies && numTraps && timeLimit) ? 'Keys, enemies, traps & timer! Reach the star!' : hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
+        const instrText = (darkZones && numTeleporters) ? 'Nightmare maze! Dark zones, portals, keys, enemies & traps!' : (hasKeys && numEnemies && numTraps && numTeleporters) ? 'Everything! Keys, enemies, traps & portals! Reach the star!' : (hasKeys && numEnemies && numTraps && timeLimit) ? 'Keys, enemies, traps & timer! Reach the star!' : hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
         this.add.text(width / 2, 30, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
@@ -1357,13 +1359,60 @@ class GameScene extends Phaser.Scene {
         const player = this.add.circle(playerX, playerY, cellSize / 3, 0x44dd44);
         if (fogOfWar) player.setDepth(20);
 
+        // Dark zone map - cells where fog radius shrinks to 1
+        const darkZoneMap = Array.from({ length: mazeH }, () => Array(mazeW).fill(false));
+        if (darkZones && fogOfWar) {
+            // Place dark zone clusters spread through the maze
+            const dzCandidates = [];
+            for (let r = 0; r < mazeH; r++) {
+                for (let c = 0; c < mazeW; c++) {
+                    if (maze[r][c] === 0 && !(r === 0 && c === 0) && !(r === mazeH - 1 && c === mazeW - 1)) {
+                        dzCandidates.push({ r, c });
+                    }
+                }
+            }
+            // Shuffle and pick ~20% of path cells as dark zone seeds, then expand each into a cluster
+            for (let i = dzCandidates.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [dzCandidates[i], dzCandidates[j]] = [dzCandidates[j], dzCandidates[i]];
+            }
+            const numSeeds = Math.floor(dzCandidates.length * 0.06);
+            for (let s = 0; s < numSeeds && s < dzCandidates.length; s++) {
+                const seed = dzCandidates[s];
+                // Mark a cluster of cells around the seed
+                for (let dr = -2; dr <= 2; dr++) {
+                    for (let dc = -2; dc <= 2; dc++) {
+                        const nr = seed.r + dr;
+                        const nc = seed.c + dc;
+                        if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0) {
+                            darkZoneMap[nr][nc] = true;
+                        }
+                    }
+                }
+            }
+
+            // Draw dark zone tint on path cells
+            for (let row = 0; row < mazeH; row++) {
+                for (let col = 0; col < mazeW; col++) {
+                    if (darkZoneMap[row][col]) {
+                        const x = offsetX + col * cellSize + cellSize / 2;
+                        const y = offsetY + row * cellSize + cellSize / 2;
+                        const tint = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, 0x1a0a2e, 0.5);
+                        tint.setDepth(5);
+                    }
+                }
+            }
+        }
+
         // Fog of war visibility update function
         const updateFog = () => {
             if (!fogOfWar) return;
+            // Determine effective view radius - shrinks to 1 in dark zones
+            const effectiveRadius = (darkZones && darkZoneMap[playerRow] && darkZoneMap[playerRow][playerCol]) ? 1 : viewRadius;
             for (let row = 0; row < mazeH; row++) {
                 for (let col = 0; col < mazeW; col++) {
                     const dist = Math.abs(row - playerRow) + Math.abs(col - playerCol);
-                    if (dist <= viewRadius) {
+                    if (dist <= effectiveRadius) {
                         fogOverlays[row][col].setVisible(false);
                     } else {
                         fogOverlays[row][col].setVisible(true);
