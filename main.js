@@ -63,6 +63,7 @@ const LevelRegistry = {
     56: { type: 'color-chain', config: { gridSize: 9, colors: 10, fillBoard: true } },
     57: { type: 'jigsaw', config: { rows: 5, cols: 5, canRotate: true } },
     58: { type: 'tower-of-hanoi', config: { discs: 7 } },
+    59: { type: 'light-toggle', config: { size: 7, randomize: true, lockedCells: 8 } },
 };
 
 // ============================================================
