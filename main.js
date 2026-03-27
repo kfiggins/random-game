@@ -8,6 +8,7 @@ const LevelRegistry = {
     1: { type: 'color-match', config: { pairs: 3, colors: 4, timeLimit: 30 } },
     2: { type: 'memory-cards', config: { rows: 2, cols: 4, timeLimit: 0 } },
     3: { type: 'simon-says', config: { sequenceLength: 3, colors: 4, playbackSpeed: 800 } },
+    4: { type: 'sorting', config: { count: 5, maxValue: 20 } },
 };
 
 // ============================================================
@@ -183,6 +184,8 @@ class GameScene extends Phaser.Scene {
             this.createMemoryCardsPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'simon-says') {
             this.createSimonSaysPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'sorting') {
+            this.createSortingPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -637,6 +640,130 @@ class GameScene extends Phaser.Scene {
 
         // Start the first playback
         playSequence();
+    }
+
+    createSortingPuzzle(config) {
+        const { width, height } = this.scale;
+        const { count, maxValue } = config;
+
+        // Generate unique random numbers
+        const numbers = [];
+        while (numbers.length < count) {
+            const n = Phaser.Math.Between(1, maxValue);
+            if (!numbers.includes(n)) numbers.push(n);
+        }
+
+        // Ensure not already sorted
+        const sorted = [...numbers].sort((a, b) => a - b);
+        if (numbers.every((v, i) => v === sorted[i])) {
+            // Swap first two to unsort
+            const tmp = numbers[0];
+            numbers[0] = numbers[1];
+            numbers[1] = tmp;
+        }
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Click two numbers to swap. Sort ascending!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Swap counter
+        let swapCount = 0;
+        const swapText = this.add.text(width / 2, height - 80, 'Swaps: 0', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Card layout
+        const cardW = 80;
+        const cardH = 100;
+        const padding = 20;
+        const totalW = count * cardW + (count - 1) * padding;
+        const startX = (width - totalW) / 2 + cardW / 2;
+        const cardY = height / 2;
+
+        let selectedIndex = null;
+        const cards = [];
+
+        const createCard = (index) => {
+            const x = startX + index * (cardW + padding);
+
+            const bg = this.add.rectangle(x, cardY, cardW, cardH, 0x3a3a6a)
+                .setInteractive({ useHandCursor: true });
+
+            const label = this.add.text(x, cardY, `${numbers[index]}`, {
+                fontSize: '32px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            const outline = this.add.rectangle(x, cardY, cardW + 6, cardH + 6)
+                .setStrokeStyle(3, 0xffdd44)
+                .setVisible(false);
+
+            bg.on('pointerover', () => {
+                if (selectedIndex !== index) bg.setFillStyle(0x5a5a9a);
+            });
+            bg.on('pointerout', () => {
+                if (selectedIndex !== index) bg.setFillStyle(0x3a3a6a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (selectedIndex === null) {
+                    // First selection
+                    selectedIndex = index;
+                    outline.setVisible(true);
+                    bg.setFillStyle(0x5a5a9a);
+                } else if (selectedIndex === index) {
+                    // Deselect
+                    selectedIndex = null;
+                    outline.setVisible(false);
+                    bg.setFillStyle(0x3a3a6a);
+                } else {
+                    // Swap
+                    const otherIndex = selectedIndex;
+                    cards[otherIndex].outline.setVisible(false);
+                    cards[otherIndex].bg.setFillStyle(0x3a3a6a);
+
+                    const tmp = numbers[otherIndex];
+                    numbers[otherIndex] = numbers[index];
+                    numbers[index] = tmp;
+
+                    cards[otherIndex].label.setText(`${numbers[otherIndex]}`);
+                    label.setText(`${numbers[index]}`);
+
+                    selectedIndex = null;
+                    swapCount++;
+                    swapText.setText(`Swaps: ${swapCount}`);
+
+                    // Check if sorted
+                    let isSorted = true;
+                    for (let i = 0; i < numbers.length - 1; i++) {
+                        if (numbers[i] > numbers[i + 1]) {
+                            isSorted = false;
+                            break;
+                        }
+                    }
+
+                    if (isSorted) {
+                        // Flash all cards green
+                        cards.forEach(c => c.bg.setFillStyle(0x228822));
+                        this.time.delayedCall(500, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    }
+                }
+            });
+
+            return { bg, label, outline };
+        };
+
+        for (let i = 0; i < count; i++) {
+            cards.push(createCard(i));
+        }
     }
 
     handleTimeUp() {
