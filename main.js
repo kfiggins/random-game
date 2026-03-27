@@ -61,6 +61,7 @@ const LevelRegistry = {
     54: { type: 'sliding-puzzle', config: { size: 5 } },
     55: { type: 'math', config: { problems: 5, mode: 'chain', timeLimit: 60 } },
     56: { type: 'color-chain', config: { gridSize: 9, colors: 10, fillBoard: true } },
+    57: { type: 'jigsaw', config: { rows: 5, cols: 5, canRotate: true } },
 };
 
 // ============================================================
@@ -5591,6 +5592,26 @@ class GameScene extends Phaser.Scene {
             0xd35400, 0x27ae60, 0x2c3e50, 0xf06292,
         ];
 
+        // Complex pattern mode for large grids (5x5+)
+        const useComplexPattern = totalPieces >= 25;
+        // Additional palette for sub-patterns
+        const patternColors = [
+            0xc0392b, 0xe74c3c, 0xd35400, 0xe67e22, 0xf39c12,
+            0xf1c40f, 0x27ae60, 0x2ecc71, 0x16a085, 0x1abc9c,
+            0x2980b9, 0x3498db, 0x8e44ad, 0x9b59b6, 0xf06292,
+            0x2c3e50, 0x7f8c8d, 0xbdc3c7, 0xd4a574, 0x6c5ce7,
+        ];
+        // Generate unique quadrant color patterns per piece using hash-like mixing
+        const getQuadrantColors = (r, c) => {
+            const seed = r * 7 + c * 13 + r * c * 3;
+            return [
+                patternColors[(seed + r * 3) % patternColors.length],
+                patternColors[(seed + c * 5 + 7) % patternColors.length],
+                patternColors[(seed + r + c * 4 + 11) % patternColors.length],
+                patternColors[(seed + r * 2 + c + 3) % patternColors.length],
+            ];
+        };
+
         // Draw target grid outlines
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
@@ -5659,9 +5680,44 @@ class GameScene extends Phaser.Scene {
                 const sx = Phaser.Math.Between(scatterMinX, scatterMaxX);
                 const sy = Phaser.Math.Between(scatterMinY, scatterMaxY);
 
-                const pieceRect = this.add.rectangle(sx, sy, pieceSize - 4, pieceSize - 4, color)
-                    .setStrokeStyle(2, 0xffffff, 0.5)
-                    .setInteractive({ useHandCursor: true });
+                let pieceRect;
+                if (useComplexPattern) {
+                    // Draw a complex multi-colored pattern as a single Graphics object
+                    const gfx = this.add.graphics();
+                    const half = (pieceSize - 4) / 2;
+                    const qColors = getQuadrantColors(r, c);
+                    // Four colored quadrants
+                    gfx.fillStyle(qColors[0], 1); gfx.fillRect(-half, -half, half, half);
+                    gfx.fillStyle(qColors[1], 1); gfx.fillRect(0, -half, half, half);
+                    gfx.fillStyle(qColors[2], 1); gfx.fillRect(-half, 0, half, half);
+                    gfx.fillStyle(qColors[3], 1); gfx.fillRect(0, 0, half, half);
+                    // Center diamond
+                    const ds = half * 0.35;
+                    gfx.fillStyle(color, 1);
+                    gfx.fillPoints([
+                        { x: 0, y: -ds }, { x: ds, y: 0 },
+                        { x: 0, y: ds }, { x: -ds, y: 0 },
+                    ], true);
+                    // Thin cross lines for visual noise
+                    gfx.lineStyle(1, 0xffffff, 0.3);
+                    gfx.lineBetween(-half, 0, half, 0);
+                    gfx.lineBetween(0, -half, 0, half);
+                    // Border
+                    gfx.lineStyle(2, 0xffffff, 0.5);
+                    gfx.strokeRect(-half, -half, pieceSize - 4, pieceSize - 4);
+                    gfx.setPosition(sx, sy);
+                    // Make interactive with a hit area
+                    gfx.setInteractive(
+                        new Phaser.Geom.Rectangle(-half, -half, pieceSize - 4, pieceSize - 4),
+                        Phaser.Geom.Rectangle.Contains
+                    );
+                    gfx.input.cursor = 'pointer';
+                    pieceRect = gfx;
+                } else {
+                    pieceRect = this.add.rectangle(sx, sy, pieceSize - 4, pieceSize - 4, color)
+                        .setStrokeStyle(2, 0xffffff, 0.5)
+                        .setInteractive({ useHandCursor: true });
+                }
 
                 // Draw a small label on the piece showing its number
                 const label = this.add.text(sx, sy, `${r * cols + c + 1}`, {
@@ -5690,7 +5746,6 @@ class GameScene extends Phaser.Scene {
                     piece.rotation = startRot;
                     pieceRect.setAngle(startRot);
                     label.setAngle(startRot);
-
                     // Small arrow indicator at top of piece
                     const indicator = this.add.triangle(
                         sx, sy - pieceSize / 2 + 10,
@@ -5764,7 +5819,13 @@ class GameScene extends Phaser.Scene {
                         piece.rect.setAngle(0);
                         piece.label.setPosition(x, y);
                         piece.label.setAngle(0);
-                        piece.rect.setStrokeStyle(2, 0x00ff00, 0.8);
+                        if (useComplexPattern) {
+                            // Add a green border overlay for placed complex pieces
+                            this.add.rectangle(x, y, pieceSize - 2, pieceSize - 2)
+                                .setStrokeStyle(2, 0x00ff00, 0.8).setFillStyle(0x000000, 0);
+                        } else {
+                            piece.rect.setStrokeStyle(2, 0x00ff00, 0.8);
+                        }
                         piece.placed = true;
                         piece.rect.disableInteractive();
                         grid[r][c] = piece;
@@ -5784,9 +5845,17 @@ class GameScene extends Phaser.Scene {
                         }
                     } else {
                         // Wrong — flash red and return to scattered position
-                        piece.rect.setStrokeStyle(3, 0xff0000, 1);
+                        let flashRect = null;
+                        if (useComplexPattern) {
+                            flashRect = this.add.rectangle(piece.rect.x, piece.rect.y, pieceSize - 2, pieceSize - 2)
+                                .setStrokeStyle(3, 0xff0000, 1).setFillStyle(0xff0000, 0.2)
+                                .setAngle(piece.rotation);
+                        } else {
+                            piece.rect.setStrokeStyle(3, 0xff0000, 1);
+                        }
                         this.time.delayedCall(300, () => {
-                            piece.rect.setStrokeStyle(2, 0xffffff, 0.5);
+                            if (flashRect) flashRect.destroy();
+                            if (!useComplexPattern) piece.rect.setStrokeStyle(2, 0xffffff, 0.5);
                             // Return to original scattered position
                             piece.rect.setPosition(piece.origX, piece.origY);
                             piece.label.setPosition(piece.origX, piece.origY);
