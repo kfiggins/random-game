@@ -98,6 +98,7 @@ const LevelRegistry = {
     91: { type: 'simon-says', config: { sequenceLength: 20, colors: 8, playbackSpeed: 250, replayAllowed: false, decoyFlash: true, speedUp: true } },
     92: { type: 'memory-cards', config: { rows: 8, cols: 8, timeLimit: 25, reshuffleAfter: 1, flipBackSpeed: 200, blackout: true, fakeCards: 6, morphing: true } },
     93: { type: 'maze', config: { width: 41, height: 41, cellSize: 14, fogOfWar: true, viewRadius: 1, enemies: 10, traps: 12, timeLimit: 60, hasKeys: true, keys: 5, teleporters: 4, darkZones: true, shifting: true } },
+    94: { type: 'light-toggle', config: { size: 9, randomize: true, lockedCells: 15, chainReaction: true, timeLimit: 90 } },
 };
 
 // ============================================================
