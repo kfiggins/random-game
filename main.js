@@ -96,6 +96,7 @@ const LevelRegistry = {
     89: { type: 'jigsaw', config: { rows: 7, cols: 7, canRotate: true, timeLimit: 150 } },
     90: { type: 'multi-puzzle', config: { stages: 8, timeLimit: 300 } },
     91: { type: 'simon-says', config: { sequenceLength: 20, colors: 8, playbackSpeed: 250, replayAllowed: false, decoyFlash: true, speedUp: true } },
+    92: { type: 'memory-cards', config: { rows: 8, cols: 8, timeLimit: 25, reshuffleAfter: 1, flipBackSpeed: 200, blackout: true, fakeCards: 6, morphing: true } },
 };
 
 // ============================================================
@@ -493,7 +494,7 @@ class GameScene extends Phaser.Scene {
 
     createMemoryCardsPuzzle(config) {
         const { width, height } = this.scale;
-        const { rows, cols, timeLimit, reshuffleAfter, flipBackSpeed, blackout, fakeCards: numFakes } = config;
+        const { rows, cols, timeLimit, reshuffleAfter, flipBackSpeed, blackout, fakeCards: numFakes, morphing } = config;
         const totalCards = rows * cols;
         const numPairs = (totalCards - (numFakes || 0)) / 2;
 
@@ -518,6 +519,15 @@ class GameScene extends Phaser.Scene {
             { name: 'Olive', hex: 0x88aa44 },
             { name: 'Sky', hex: 0x66bbee },
             { name: 'Plum', hex: 0x884488 },
+            { name: 'Scarlet', hex: 0xcc2222 },
+            { name: 'Azure', hex: 0x3399ff },
+            { name: 'Emerald', hex: 0x22cc66 },
+            { name: 'Amber', hex: 0xffaa00 },
+            { name: 'Violet', hex: 0x9944cc },
+            { name: 'Peach', hex: 0xffbb99 },
+            { name: 'Navy', hex: 0x334488 },
+            { name: 'Crimson', hex: 0xdd3355 },
+            { name: 'Sage', hex: 0x88bb88 },
         ];
 
         // Create pairs and shuffle
@@ -677,6 +687,7 @@ class GameScene extends Phaser.Scene {
 
                         if (matchesFound >= numPairs) {
                             if (timerEvent) timerEvent.remove();
+                            if (morphTimer) morphTimer.remove();
                             this.time.delayedCall(500, () => {
                                 this.scene.start('LevelCompleteScene', { level: this.level });
                             });
@@ -732,6 +743,62 @@ class GameScene extends Phaser.Scene {
                         });
                     }
                 }
+            });
+        }
+
+        // Morphing: gradually shift the hue of unmatched card faces over time
+        let morphTimer = null;
+        if (morphing) {
+            const hueShiftRate = 5; // degrees per tick
+            let morphOffset = 0;
+            morphTimer = this.time.addEvent({
+                delay: 500,
+                loop: true,
+                callback: () => {
+                    morphOffset += hueShiftRate;
+                    cards.forEach(c => {
+                        if (c.matched) return;
+                        const origHex = c.face.fillColor;
+                        const r = (origHex >> 16) & 0xff;
+                        const g = (origHex >> 8) & 0xff;
+                        const b = origHex & 0xff;
+                        // Convert RGB to HSL, shift hue, convert back
+                        const rn = r / 255, gn = g / 255, bn = b / 255;
+                        const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+                        let h = 0, s = 0;
+                        const l = (max + min) / 2;
+                        if (max !== min) {
+                            const d = max - min;
+                            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                            if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+                            else if (max === gn) h = ((bn - rn) / d + 2) / 6;
+                            else h = ((rn - gn) / d + 4) / 6;
+                        }
+                        // Shift hue
+                        h = (h + hueShiftRate / 360) % 1;
+                        // HSL to RGB
+                        let nr, ng, nb;
+                        if (s === 0) {
+                            nr = ng = nb = l;
+                        } else {
+                            const hue2rgb = (p, q, t) => {
+                                if (t < 0) t += 1;
+                                if (t > 1) t -= 1;
+                                if (t < 1 / 6) return p + (q - p) * 6 * t;
+                                if (t < 1 / 2) return q;
+                                if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                                return p;
+                            };
+                            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                            const p = 2 * l - q;
+                            nr = hue2rgb(p, q, h + 1 / 3);
+                            ng = hue2rgb(p, q, h);
+                            nb = hue2rgb(p, q, h - 1 / 3);
+                        }
+                        const newHex = (Math.round(nr * 255) << 16) | (Math.round(ng * 255) << 8) | Math.round(nb * 255);
+                        c.face.setFillStyle(newHex);
+                    });
+                },
             });
         }
     }
