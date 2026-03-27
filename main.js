@@ -101,6 +101,7 @@ const LevelRegistry = {
     94: { type: 'light-toggle', config: { size: 9, randomize: true, lockedCells: 15, chainReaction: true, timeLimit: 90 } },
     95: { type: 'math', config: { problems: 5, mode: 'number-theory', timeLimit: 120 } },
     96: { type: 'color-chain', config: { gridSize: 14, colors: 18, fillBoard: true, timeLimit: 300 } },
+    97: { type: 'sorting', config: { count: 20, maxValue: 1000, mode: 'quantum', timeLimit: 90 } },
 };
 
 // ============================================================
@@ -982,6 +983,10 @@ class GameScene extends Phaser.Scene {
             return this.createMergeSortPuzzle(config);
         }
 
+        if (config.mode === 'quantum') {
+            return this.createQuantumSortPuzzle(config);
+        }
+
         const { count, maxValue, maxSwaps, adjacentOnly, blind } = config;
 
         // Generate unique random numbers
@@ -1435,6 +1440,266 @@ class GameScene extends Phaser.Scene {
                 groupCards[g] = cards;
             }
         };
+    }
+
+    createQuantumSortPuzzle(config) {
+        const { width, height } = this.scale;
+        const { count, maxValue, timeLimit } = config;
+        const maxSwaps = 40;
+
+        // Generate unique random real values
+        const realValues = [];
+        while (realValues.length < count) {
+            const n = Phaser.Math.Between(1, maxValue);
+            if (!realValues.includes(n)) realValues.push(n);
+        }
+
+        // Ensure not already sorted
+        const sorted = [...realValues].sort((a, b) => a - b);
+        if (realValues.every((v, i) => v === sorted[i])) {
+            const tmp = realValues[0];
+            realValues[0] = realValues[1];
+            realValues[1] = tmp;
+        }
+
+        // For each number, generate a decoy value (the other superposition option)
+        const decoyValues = realValues.map(real => {
+            let decoy;
+            do {
+                decoy = Phaser.Math.Between(1, maxValue);
+            } while (decoy === real || realValues.includes(decoy));
+            return decoy;
+        });
+
+        // Track whether each number has been collapsed
+        const collapsed = new Array(count).fill(false);
+
+        // Instructions
+        this.add.text(width / 2, 40, 'Quantum Sort! Each number is in superposition.', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 60, 'Swapping collapses values. Sort ascending!', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#888888',
+        }).setOrigin(0.5);
+
+        // Swap counter
+        let swapCount = 0;
+        const swapText = this.add.text(width / 2 - 100, height - 80, `Swaps: 0/${maxSwaps}`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2 + 100, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 10) timerText.setColor('#ff4444');
+                if (timeLeft <= 0) this.handleTimeUp();
+            },
+        });
+
+        // Card layout - 2 rows of 10 for 20 cards
+        const cols = 10;
+        const rows = Math.ceil(count / cols);
+        const cardW = 60;
+        const cardH = 70;
+        const padding = 8;
+        const totalRowW = cols * cardW + (cols - 1) * padding;
+        const startX = (width - totalRowW) / 2 + cardW / 2;
+        const startY = 120;
+        const rowSpacing = cardH + 30;
+
+        let selectedIndex = null;
+        const cards = [];
+
+        const getDisplayText = (index) => {
+            if (collapsed[index]) {
+                return `${realValues[index]}`;
+            }
+            // Show both superposition values, smaller on top
+            const a = Math.min(realValues[index], decoyValues[index]);
+            const b = Math.max(realValues[index], decoyValues[index]);
+            return `${a}\n${b}`;
+        };
+
+        const getCardColor = (index) => {
+            return collapsed[index] ? 0x3a6a3a : 0x3a3a6a;
+        };
+
+        const checkSorted = () => {
+            for (let i = 0; i < realValues.length - 1; i++) {
+                if (realValues[i] > realValues[i + 1]) return false;
+            }
+            return true;
+        };
+
+        const handleOutOfMoves = () => {
+            timerEvent.remove(false);
+            this.children.list.forEach(child => {
+                if (child.input) child.disableInteractive();
+            });
+
+            const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7);
+
+            this.add.text(width / 2, height / 2 - 40, 'Out of swaps!', {
+                fontSize: '40px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ff4444',
+            }).setOrigin(0.5);
+
+            this.createButton(width / 2, height / 2 + 30, 'Retry', () => {
+                this.scene.start('GameScene', { level: this.level });
+            });
+
+            this.createButton(width / 2, height / 2 + 90, 'Back to Menu', () => {
+                this.scene.start('MenuScene');
+            }, 0x5a3a3a, 0x7a5a5a);
+        };
+
+        const createCard = (index) => {
+            const col = index % cols;
+            const row = Math.floor(index / cols);
+            const x = startX + col * (cardW + padding);
+            const y = startY + row * rowSpacing;
+
+            const bg = this.add.rectangle(x, y, cardW, cardH, getCardColor(index))
+                .setInteractive({ useHandCursor: true });
+
+            const label = this.add.text(x, y, getDisplayText(index), {
+                fontSize: collapsed[index] ? '22px' : '14px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+                align: 'center',
+            }).setOrigin(0.5);
+
+            // Superposition indicator
+            const indicator = this.add.text(x, y - cardH / 2 + 8, collapsed[index] ? '' : '\u2B50', {
+                fontSize: '10px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffdd44',
+            }).setOrigin(0.5);
+
+            const outline = this.add.rectangle(x, y, cardW + 6, cardH + 6)
+                .setStrokeStyle(3, 0xffdd44)
+                .setVisible(false);
+
+            bg.on('pointerover', () => {
+                if (selectedIndex !== index) bg.setFillStyle(collapsed[index] ? 0x5a9a5a : 0x5a5a9a);
+            });
+            bg.on('pointerout', () => {
+                if (selectedIndex !== index) bg.setFillStyle(getCardColor(index));
+            });
+
+            bg.on('pointerdown', () => {
+                if (selectedIndex === null) {
+                    selectedIndex = index;
+                    outline.setVisible(true);
+                    bg.setFillStyle(collapsed[index] ? 0x5a9a5a : 0x5a5a9a);
+                } else if (selectedIndex === index) {
+                    selectedIndex = null;
+                    outline.setVisible(false);
+                    bg.setFillStyle(getCardColor(index));
+                } else {
+                    const otherIndex = selectedIndex;
+                    cards[otherIndex].outline.setVisible(false);
+                    cards[otherIndex].bg.setFillStyle(getCardColor(otherIndex));
+
+                    // Collapse both cards if not already collapsed
+                    if (!collapsed[otherIndex]) {
+                        collapsed[otherIndex] = true;
+                        cards[otherIndex].bg.setFillStyle(0x3a6a3a);
+                        // Flash to indicate collapse
+                        this.tweens.add({
+                            targets: cards[otherIndex].bg,
+                            scaleX: 1.15,
+                            scaleY: 1.15,
+                            duration: 150,
+                            yoyo: true,
+                        });
+                    }
+                    if (!collapsed[index]) {
+                        collapsed[index] = true;
+                        bg.setFillStyle(0x3a6a3a);
+                        this.tweens.add({
+                            targets: bg,
+                            scaleX: 1.15,
+                            scaleY: 1.15,
+                            duration: 150,
+                            yoyo: true,
+                        });
+                    }
+
+                    // Swap real values
+                    const tmp = realValues[otherIndex];
+                    realValues[otherIndex] = realValues[index];
+                    realValues[index] = tmp;
+
+                    // Also swap collapsed state (already both true after collapse)
+                    const tmpC = collapsed[otherIndex];
+                    collapsed[otherIndex] = collapsed[index];
+                    collapsed[index] = tmpC;
+
+                    // Also swap decoy values
+                    const tmpD = decoyValues[otherIndex];
+                    decoyValues[otherIndex] = decoyValues[index];
+                    decoyValues[index] = tmpD;
+
+                    // Update display for both cards
+                    cards[otherIndex].label.setText(getDisplayText(otherIndex));
+                    cards[otherIndex].label.setFontSize(collapsed[otherIndex] ? '22px' : '14px');
+                    cards[otherIndex].indicator.setText(collapsed[otherIndex] ? '' : '\u2B50');
+                    cards[otherIndex].bg.setFillStyle(getCardColor(otherIndex));
+
+                    label.setText(getDisplayText(index));
+                    label.setFontSize(collapsed[index] ? '22px' : '14px');
+                    indicator.setText(collapsed[index] ? '' : '\u2B50');
+                    bg.setFillStyle(getCardColor(index));
+
+                    selectedIndex = null;
+                    swapCount++;
+                    swapText.setText(`Swaps: ${swapCount}/${maxSwaps}`);
+
+                    if (checkSorted()) {
+                        timerEvent.remove(false);
+                        // Reveal all and flash green
+                        cards.forEach((c, ci) => {
+                            collapsed[ci] = true;
+                            c.bg.setFillStyle(0x228822);
+                            c.label.setText(`${realValues[ci]}`);
+                            c.label.setFontSize('22px');
+                            c.indicator.setText('');
+                        });
+                        this.time.delayedCall(500, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    } else if (swapCount >= maxSwaps) {
+                        handleOutOfMoves();
+                    }
+                }
+            });
+
+            return { bg, label, outline, indicator };
+        };
+
+        for (let i = 0; i < count; i++) {
+            cards.push(createCard(i));
+        }
     }
 
     createMazePuzzle(config) {
