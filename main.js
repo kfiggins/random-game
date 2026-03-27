@@ -28,6 +28,7 @@ const LevelRegistry = {
     21: { type: 'memory-cards', config: { rows: 4, cols: 4, timeLimit: 45 } },
     22: { type: 'color-chain', config: { gridSize: 5, colors: 3 } },
     23: { type: 'simon-says', config: { sequenceLength: 7, colors: 4, playbackSpeed: 500 } },
+    24: { type: 'sorting', config: { count: 8, maxValue: 50, maxSwaps: 15 } },
 };
 
 // ============================================================
@@ -721,7 +722,7 @@ class GameScene extends Phaser.Scene {
 
     createSortingPuzzle(config) {
         const { width, height } = this.scale;
-        const { count, maxValue } = config;
+        const { count, maxValue, maxSwaps } = config;
 
         // Generate unique random numbers
         const numbers = [];
@@ -748,7 +749,8 @@ class GameScene extends Phaser.Scene {
 
         // Swap counter
         let swapCount = 0;
-        const swapText = this.add.text(width / 2, height - 80, 'Swaps: 0', {
+        const swapLabel = maxSwaps ? `Swaps: 0/${maxSwaps}` : 'Swaps: 0';
+        const swapText = this.add.text(width / 2, height - 80, swapLabel, {
             fontSize: '22px',
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
@@ -814,7 +816,7 @@ class GameScene extends Phaser.Scene {
 
                     selectedIndex = null;
                     swapCount++;
-                    swapText.setText(`Swaps: ${swapCount}`);
+                    swapText.setText(maxSwaps ? `Swaps: ${swapCount}/${maxSwaps}` : `Swaps: ${swapCount}`);
 
                     // Check if sorted
                     let isSorted = true;
@@ -831,6 +833,27 @@ class GameScene extends Phaser.Scene {
                         this.time.delayedCall(500, () => {
                             this.scene.start('LevelCompleteScene', { level: this.level });
                         });
+                    } else if (maxSwaps && swapCount >= maxSwaps) {
+                        // Out of moves
+                        this.children.list.forEach(child => {
+                            if (child.input) child.disableInteractive();
+                        });
+
+                        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7);
+
+                        this.add.text(width / 2, height / 2 - 40, 'Out of moves!', {
+                            fontSize: '40px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#ff4444',
+                        }).setOrigin(0.5);
+
+                        this.createButton(width / 2, height / 2 + 30, 'Retry', () => {
+                            this.scene.start('GameScene', { level: this.level });
+                        });
+
+                        this.createButton(width / 2, height / 2 + 90, 'Back to Menu', () => {
+                            this.scene.start('MenuScene');
+                        }, 0x5a3a3a, 0x7a5a5a);
                     }
                 }
             });
