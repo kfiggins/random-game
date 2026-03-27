@@ -99,6 +99,7 @@ const LevelRegistry = {
     92: { type: 'memory-cards', config: { rows: 8, cols: 8, timeLimit: 25, reshuffleAfter: 1, flipBackSpeed: 200, blackout: true, fakeCards: 6, morphing: true } },
     93: { type: 'maze', config: { width: 41, height: 41, cellSize: 14, fogOfWar: true, viewRadius: 1, enemies: 10, traps: 12, timeLimit: 60, hasKeys: true, keys: 5, teleporters: 4, darkZones: true, shifting: true } },
     94: { type: 'light-toggle', config: { size: 9, randomize: true, lockedCells: 15, chainReaction: true, timeLimit: 90 } },
+    95: { type: 'math', config: { problems: 5, mode: 'number-theory', timeLimit: 120 } },
 };
 
 // ============================================================
@@ -3900,6 +3901,10 @@ class GameScene extends Phaser.Scene {
             return this.createMatrixMathPuzzle(config);
         }
 
+        if (config.mode === 'number-theory') {
+            return this.createNumberTheoryPuzzle(config);
+        }
+
         const { problems, operations, maxNum, timeLimit } = config;
 
         // Instructions
@@ -6123,6 +6128,393 @@ class GameScene extends Phaser.Scene {
                     }
                 }
             });
+        };
+
+        showProblem();
+    }
+
+    createNumberTheoryPuzzle(config) {
+        const { width, height } = this.scale;
+        const { problems, timeLimit } = config;
+
+        this.add.text(width / 2, 30, 'Number Theory', {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2 + 200, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.mathCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.mathCleanup = () => {
+            timerEvent.remove(false);
+        };
+
+        // Helper functions
+        const gcd = (a, b) => {
+            while (b) { const t = b; b = a % b; a = t; }
+            return a;
+        };
+
+        const isPrime = (n) => {
+            if (n < 2) return false;
+            if (n < 4) return true;
+            if (n % 2 === 0 || n % 3 === 0) return false;
+            for (let i = 5; i * i <= n; i += 6) {
+                if (n % i === 0 || n % (i + 2) === 0) return false;
+            }
+            return true;
+        };
+
+        const nextPrime = (n) => {
+            let candidate = n + 1;
+            while (!isPrime(candidate)) candidate++;
+            return candidate;
+        };
+
+        const primeFactors = (n) => {
+            const factors = [];
+            let d = 2;
+            while (d * d <= n) {
+                while (n % d === 0) {
+                    factors.push(d);
+                    n /= d;
+                }
+                d++;
+            }
+            if (n > 1) factors.push(n);
+            return factors;
+        };
+
+        // Problem types
+        const problemTypes = [
+            // GCD
+            () => {
+                const a = Phaser.Math.Between(12, 120);
+                const b = Phaser.Math.Between(12, 120);
+                const answer = gcd(a, b);
+                return {
+                    question: `What is GCD(${a}, ${b})?`,
+                    answer,
+                    answerStr: `${answer}`,
+                    choices: null,
+                };
+            },
+            // Is prime?
+            () => {
+                const primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97];
+                const composites = [4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22, 24, 25, 26, 27, 28, 30, 33, 34, 35, 36, 38, 39, 40, 42, 44, 45, 46, 48, 49, 50, 51, 52, 54, 55, 56, 57, 58, 60, 62, 63, 64, 65, 66, 68, 69, 70, 72, 74, 75, 76, 77, 78, 80, 81, 82, 84, 85, 86, 87, 88, 90, 91, 93, 94, 95, 96, 98, 99];
+                const usePrime = Math.random() < 0.5;
+                const n = usePrime ? Phaser.Utils.Array.GetRandom(primes) : Phaser.Utils.Array.GetRandom(composites);
+                const answer = isPrime(n) ? 'Yes' : 'No';
+                return {
+                    question: `Is ${n} prime?`,
+                    answer: answer,
+                    answerStr: answer,
+                    choices: ['Yes', 'No'],
+                };
+            },
+            // Next prime
+            () => {
+                const n = Phaser.Math.Between(10, 90);
+                const answer = nextPrime(n);
+                return {
+                    question: `What is the next prime after ${n}?`,
+                    answer,
+                    answerStr: `${answer}`,
+                    choices: null,
+                };
+            },
+            // Modular arithmetic
+            () => {
+                const a = Phaser.Math.Between(10, 99);
+                const b = Phaser.Math.Between(3, 13);
+                const answer = a % b;
+                return {
+                    question: `What is ${a} mod ${b}?`,
+                    answer,
+                    answerStr: `${answer}`,
+                    choices: null,
+                };
+            },
+            // Prime factorization
+            () => {
+                const n = Phaser.Math.Between(12, 120);
+                const factors = primeFactors(n);
+                const answerStr = factors.join(' × ');
+                return {
+                    question: `What are the prime factors of ${n}?`,
+                    answer: answerStr,
+                    answerStr,
+                    choices: null,
+                    isFactorization: true,
+                };
+            },
+        ];
+
+        let currentProblem = 0;
+        const usedTypes = Phaser.Utils.Array.Shuffle([...problemTypes]).slice(0, problems);
+
+        const progressText = this.add.text(width / 2 - 200, height - 80, `Problem 1/${problems}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        let problemText = null;
+        let choiceButtons = [];
+        let feedbackText = null;
+        let inputElements = [];
+
+        const cleanupProblem = () => {
+            if (problemText) problemText.destroy();
+            choiceButtons.forEach(b => { b.bg.destroy(); b.text.destroy(); });
+            choiceButtons = [];
+            if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
+            inputElements.forEach(el => el.destroy());
+            inputElements = [];
+        };
+
+        const advanceProblem = () => {
+            currentProblem++;
+            if (currentProblem >= problems) {
+                timerEvent.remove(false);
+                this.mathCleanup = null;
+                this.time.delayedCall(800, () => {
+                    this.scene.start('LevelCompleteScene', { level: this.level });
+                });
+            } else {
+                this.time.delayedCall(800, () => {
+                    showProblem();
+                });
+            }
+        };
+
+        const showProblem = () => {
+            cleanupProblem();
+            progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+            const prob = usedTypes[currentProblem]();
+
+            problemText = this.add.text(width / 2, height / 2 - 80, prob.question, {
+                fontSize: '36px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            if (prob.choices) {
+                // Multiple choice (e.g., yes/no for prime check)
+                const btnWidth = 140;
+                const btnSpacing = 160;
+                const totalW = prob.choices.length * btnSpacing - (btnSpacing - btnWidth);
+                const startX = width / 2 - totalW / 2 + btnWidth / 2;
+                const btnY = height / 2 + 40;
+
+                prob.choices.forEach((choice, i) => {
+                    const bx = startX + i * btnSpacing;
+                    const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(bx, btnY, choice, {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                    bg.on('pointerdown', () => {
+                        if (choice === prob.answer) {
+                            bg.setFillStyle(0x44dd44);
+                            choiceButtons.forEach(b => b.bg.disableInteractive());
+                            if (feedbackText) feedbackText.destroy();
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#44dd44',
+                            }).setOrigin(0.5);
+                            advanceProblem();
+                        } else {
+                            bg.setFillStyle(0xff4444);
+                            bg.disableInteractive();
+                            if (feedbackText) feedbackText.destroy();
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#ff4444',
+                            }).setOrigin(0.5);
+                        }
+                    });
+
+                    choiceButtons.push({ bg, text: txt });
+                });
+            } else if (prob.isFactorization) {
+                // For factorization, show multiple choice with the correct factorization and distractors
+                const btnY = height / 2 + 40;
+                const correctFactors = prob.answerStr;
+
+                // Generate distractor factorizations
+                const distractors = new Set();
+                const correctArr = correctFactors.split(' × ').map(Number);
+                while (distractors.size < 3) {
+                    const modified = [...correctArr];
+                    const idx = Phaser.Math.Between(0, modified.length - 1);
+                    const change = Phaser.Utils.Array.GetRandom([2, 3, 5, 7]);
+                    if (Math.random() < 0.5 && modified.length > 1) {
+                        modified.splice(idx, 1);
+                        modified.push(change);
+                    } else {
+                        modified[idx] = change;
+                    }
+                    modified.sort((a, b) => a - b);
+                    const str = modified.join(' × ');
+                    if (str !== correctFactors) {
+                        distractors.add(str);
+                    }
+                }
+
+                const choices = Phaser.Utils.Array.Shuffle([correctFactors, ...distractors]);
+                const btnWidth = 160;
+                const btnSpacing = 175;
+                const totalW = choices.length * btnSpacing - (btnSpacing - btnWidth);
+                const startX = width / 2 - totalW / 2 + btnWidth / 2;
+
+                choices.forEach((choice, i) => {
+                    const bx = startX + i * btnSpacing;
+                    const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(bx, btnY, choice, {
+                        fontSize: '20px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                    bg.on('pointerdown', () => {
+                        if (choice === correctFactors) {
+                            bg.setFillStyle(0x44dd44);
+                            choiceButtons.forEach(b => b.bg.disableInteractive());
+                            if (feedbackText) feedbackText.destroy();
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#44dd44',
+                            }).setOrigin(0.5);
+                            advanceProblem();
+                        } else {
+                            bg.setFillStyle(0xff4444);
+                            bg.disableInteractive();
+                            if (feedbackText) feedbackText.destroy();
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#ff4444',
+                            }).setOrigin(0.5);
+                        }
+                    });
+
+                    choiceButtons.push({ bg, text: txt });
+                });
+            } else {
+                // Numeric input via on-screen number pad
+                const answer = prob.answer;
+                let inputStr = '';
+                const btnY = height / 2 + 20;
+
+                const inputDisplay = this.add.text(width / 2, btnY - 10, '_ ', {
+                    fontSize: '36px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffdd44',
+                }).setOrigin(0.5);
+                inputElements.push(inputDisplay);
+
+                // Number pad: 0-9, backspace, submit
+                const padKeys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'];
+                const padCols = 3;
+                const padBtnSize = 56;
+                const padSpacing = 64;
+                const padStartX = width / 2 - padSpacing;
+                const padStartY = btnY + 40;
+
+                padKeys.forEach((key, i) => {
+                    const col = i % padCols;
+                    const row = Math.floor(i / padCols);
+                    const bx = padStartX + col * padSpacing;
+                    const by = padStartY + row * padSpacing;
+                    const isAction = key === '⌫' || key === '✓';
+                    const btnColor = isAction ? 0x5a5a3a : 0x4a4a8a;
+                    const btnHover = isAction ? 0x7a7a5a : 0x6a6aaa;
+
+                    const bg = this.add.rectangle(bx, by, padBtnSize, padBtnSize, btnColor)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(bx, by, key, {
+                        fontSize: '24px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+
+                    bg.on('pointerover', () => bg.setFillStyle(btnHover));
+                    bg.on('pointerout', () => bg.setFillStyle(btnColor));
+
+                    bg.on('pointerdown', () => {
+                        if (key === '⌫') {
+                            inputStr = inputStr.slice(0, -1);
+                            inputDisplay.setText(inputStr || '_ ');
+                        } else if (key === '✓') {
+                            if (inputStr === '') return;
+                            const userAnswer = parseInt(inputStr, 10);
+                            if (userAnswer === answer) {
+                                if (feedbackText) feedbackText.destroy();
+                                feedbackText = this.add.text(width / 2, padStartY + 4 * padSpacing, 'Correct!', {
+                                    fontSize: '24px',
+                                    fontFamily: 'Arial, sans-serif',
+                                    color: '#44dd44',
+                                }).setOrigin(0.5);
+                                advanceProblem();
+                            } else {
+                                inputStr = '';
+                                inputDisplay.setText('_ ');
+                                if (feedbackText) feedbackText.destroy();
+                                feedbackText = this.add.text(width / 2, padStartY + 4 * padSpacing, 'Wrong! Try again.', {
+                                    fontSize: '24px',
+                                    fontFamily: 'Arial, sans-serif',
+                                    color: '#ff4444',
+                                }).setOrigin(0.5);
+                            }
+                        } else {
+                            if (inputStr.length < 5) {
+                                inputStr += key;
+                                inputDisplay.setText(inputStr);
+                            }
+                        }
+                    });
+
+                    inputElements.push(bg, txt);
+                });
+            }
         };
 
         showProblem();
