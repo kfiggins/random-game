@@ -31,6 +31,7 @@ const LevelRegistry = {
     24: { type: 'sorting', config: { count: 8, maxValue: 50, maxSwaps: 15 } },
     25: { type: 'sliding-puzzle', config: { size: 4 } },
     26: { type: 'pattern-complete', config: { patternLength: 9, numChoices: 4, is2D: true } },
+    27: { type: 'maze', config: { width: 15, height: 15, cellSize: 35, hasKeys: true, keys: 2 } },
 };
 
 // ============================================================
@@ -870,10 +871,10 @@ class GameScene extends Phaser.Scene {
 
     createMazePuzzle(config) {
         const { width, height } = this.scale;
-        const { width: mazeW, height: mazeH, cellSize } = config;
+        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys } = config;
 
         // Generate maze using recursive backtracker algorithm
-        // 0 = path, 1 = wall
+        // 0 = path, 1 = wall, 2+ = door (blocked until key collected)
         const maze = Array.from({ length: mazeH }, () => Array(mazeW).fill(1));
 
         const carveMaze = (r, c) => {
@@ -897,8 +898,122 @@ class GameScene extends Phaser.Scene {
         // Ensure exit cell is open
         maze[mazeH - 1][mazeW - 1] = 0;
 
+        // Key/door colors
+        const keyColors = [
+            { name: 'Red', hex: 0xff4444, doorHex: 0x882222 },
+            { name: 'Blue', hex: 0x4488ff, doorHex: 0x224488 },
+            { name: 'Yellow', hex: 0xffdd44, doorHex: 0x887722 },
+            { name: 'Purple', hex: 0xcc44ff, doorHex: 0x662288 },
+        ];
+
+        // Keys and doors state
+        const collectedKeys = [];
+        const keySprites = [];
+        const doorSprites = [];
+        const doorCells = [];
+        const keyCells = [];
+
+        if (hasKeys && numKeys > 0) {
+            // Collect all path cells for placing keys and doors
+            const pathCells = [];
+            for (let r = 0; r < mazeH; r++) {
+                for (let c = 0; c < mazeW; c++) {
+                    if (maze[r][c] === 0 && !(r === 0 && c === 0) && !(r === mazeH - 1 && c === mazeW - 1)) {
+                        pathCells.push({ r, c });
+                    }
+                }
+            }
+
+            // Use BFS to find distance from start for each path cell
+            const dist = Array.from({ length: mazeH }, () => Array(mazeW).fill(-1));
+            dist[0][0] = 0;
+            const queue = [{ r: 0, c: 0 }];
+            let qi = 0;
+            while (qi < queue.length) {
+                const { r, c } = queue[qi++];
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0 && dist[nr][nc] === -1) {
+                        dist[nr][nc] = dist[r][c] + 1;
+                        queue.push({ r: nr, c: nc });
+                    }
+                }
+            }
+
+            // Sort path cells by distance from start
+            pathCells.sort((a, b) => dist[a.r][a.c] - dist[b.r][b.c]);
+
+            // Find corridor cells (path cells with exactly 2 path neighbors) for door placement
+            const corridorCells = [];
+            for (const cell of pathCells) {
+                let pathNeighbors = 0;
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+                    const nr = cell.r + dr;
+                    const nc = cell.c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0) {
+                        pathNeighbors++;
+                    }
+                }
+                if (pathNeighbors === 2) {
+                    corridorCells.push(cell);
+                }
+            }
+            corridorCells.sort((a, b) => dist[a.r][a.c] - dist[b.r][b.c]);
+
+            const keyCount = Math.min(numKeys, keyColors.length);
+
+            for (let i = 0; i < keyCount; i++) {
+                // Place door in mid-to-far section of corridors
+                const doorStart = Math.floor(corridorCells.length * (0.3 + i * 0.25));
+                const doorEnd = Math.min(corridorCells.length, doorStart + Math.floor(corridorCells.length * 0.2));
+                let doorCell = null;
+                for (let d = doorStart; d < doorEnd; d++) {
+                    const candidate = corridorCells[d];
+                    const tooClose = doorCells.some(dc => Math.abs(dc.r - candidate.r) + Math.abs(dc.c - candidate.c) < 4);
+                    if (!tooClose) {
+                        doorCell = candidate;
+                        break;
+                    }
+                }
+                if (!doorCell && corridorCells.length > 0) {
+                    doorCell = corridorCells[Math.floor(corridorCells.length * (0.4 + i * 0.2))];
+                }
+                if (!doorCell) continue;
+
+                doorCells.push(doorCell);
+                // Mark door in maze: 2 + key index
+                maze[doorCell.r][doorCell.c] = 2 + i;
+
+                // Place key before the door (closer to start)
+                const doorDist = dist[doorCell.r][doorCell.c];
+                const keyCandidates = pathCells.filter(pc => {
+                    if (dist[pc.r][pc.c] >= doorDist) return false;
+                    if (dist[pc.r][pc.c] < 2) return false;
+                    const tooCloseToOther = keyCells.some(kc => Math.abs(kc.r - pc.r) + Math.abs(kc.c - pc.c) < 3);
+                    const tooCloseToDoor = doorCells.some(dc => dc.r === pc.r && dc.c === pc.c);
+                    return !tooCloseToOther && !tooCloseToDoor;
+                });
+
+                let keyCell;
+                if (keyCandidates.length > 0) {
+                    // Place key roughly midway between start and door
+                    const targetIdx = Math.floor(keyCandidates.length * 0.5);
+                    keyCell = keyCandidates[targetIdx];
+                } else {
+                    // Fallback: any path cell before the door
+                    const fallback = pathCells.filter(pc => dist[pc.r][pc.c] < doorDist && dist[pc.r][pc.c] > 0);
+                    keyCell = fallback.length > 0 ? fallback[Math.floor(fallback.length / 2)] : pathCells[Math.floor(pathCells.length * 0.2)];
+                }
+
+                keyCells.push(keyCell);
+                collectedKeys.push(false);
+            }
+        }
+
         // Instructions
-        this.add.text(width / 2, 30, 'Use arrow keys to reach the star!', {
+        const instrText = hasKeys ? 'Collect keys to unlock doors! Reach the star!' : 'Use arrow keys to reach the star!';
+        this.add.text(width / 2, 30, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
             color: '#aaaaaa',
@@ -912,6 +1027,22 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
         }).setOrigin(0.5);
 
+        // Key inventory display
+        const keyDisplayTexts = [];
+        if (hasKeys && keyCells.length > 0) {
+            for (let i = 0; i < keyCells.length; i++) {
+                const kx = width / 2 - (keyCells.length - 1) * 60 + i * 120;
+                const colorDef = keyColors[i];
+                const hexStr = '#' + colorDef.hex.toString(16).padStart(6, '0');
+                const txt = this.add.text(kx, height - 50, `${colorDef.name} Key: ✗`, {
+                    fontSize: '16px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: hexStr,
+                }).setOrigin(0.5);
+                keyDisplayTexts.push(txt);
+            }
+        }
+
         // Calculate grid offset to center the maze
         const gridW = mazeW * cellSize;
         const gridH = mazeH * cellSize;
@@ -923,9 +1054,30 @@ class GameScene extends Phaser.Scene {
             for (let col = 0; col < mazeW; col++) {
                 const x = offsetX + col * cellSize + cellSize / 2;
                 const y = offsetY + row * cellSize + cellSize / 2;
-                const isWall = maze[row][col] === 1;
-                this.add.rectangle(x, y, cellSize - 2, cellSize - 2, isWall ? 0x2a2a4a : 0x4a4a6a);
+                const cellVal = maze[row][col];
+                if (cellVal === 1) {
+                    this.add.rectangle(x, y, cellSize - 2, cellSize - 2, 0x2a2a4a);
+                } else if (cellVal >= 2) {
+                    // Door cell - draw path underneath, door on top
+                    this.add.rectangle(x, y, cellSize - 2, cellSize - 2, 0x4a4a6a);
+                    const doorIdx = cellVal - 2;
+                    const doorColor = keyColors[doorIdx].doorHex;
+                    const doorSprite = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, doorColor);
+                    doorSprite.setStrokeStyle(2, keyColors[doorIdx].hex);
+                    doorSprites.push({ sprite: doorSprite, idx: doorIdx, row, col });
+                } else {
+                    this.add.rectangle(x, y, cellSize - 2, cellSize - 2, 0x4a4a6a);
+                }
             }
+        }
+
+        // Draw keys on the maze
+        for (let i = 0; i < keyCells.length; i++) {
+            const kc = keyCells[i];
+            const kx = offsetX + kc.c * cellSize + cellSize / 2;
+            const ky = offsetY + kc.r * cellSize + cellSize / 2;
+            const keySprite = this.add.star(kx, ky, 4, 5, cellSize / 3, keyColors[i].hex);
+            keySprites.push(keySprite);
         }
 
         // Exit star at bottom-right
@@ -952,6 +1104,11 @@ class GameScene extends Phaser.Scene {
             if (newCol < 0 || newCol >= mazeW || newRow < 0 || newRow >= mazeH) return;
             // Wall check
             if (maze[newRow][newCol] === 1) return;
+            // Door check - blocked if key not collected
+            if (maze[newRow][newCol] >= 2) {
+                const doorIdx = maze[newRow][newCol] - 2;
+                if (!collectedKeys[doorIdx]) return;
+            }
 
             playerCol = newCol;
             playerRow = newRow;
@@ -962,6 +1119,23 @@ class GameScene extends Phaser.Scene {
 
             moveCount++;
             moveText.setText(`Moves: ${moveCount}`);
+
+            // Check key pickup
+            for (let i = 0; i < keyCells.length; i++) {
+                if (!collectedKeys[i] && playerRow === keyCells[i].r && playerCol === keyCells[i].c) {
+                    collectedKeys[i] = true;
+                    keySprites[i].setVisible(false);
+                    keyDisplayTexts[i].setText(`${keyColors[i].name} Key: ✓`);
+
+                    // Open matching doors
+                    for (const door of doorSprites) {
+                        if (door.idx === i) {
+                            door.sprite.setVisible(false);
+                            maze[door.row][door.col] = 0;
+                        }
+                    }
+                }
+            }
 
             // Check win
             if (playerCol === mazeW - 1 && playerRow === mazeH - 1) {
