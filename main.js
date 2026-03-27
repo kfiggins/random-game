@@ -92,6 +92,7 @@ const LevelRegistry = {
     85: { type: 'pattern-complete', config: { patternLength: 25, numChoices: 10, is2D: true, illusion: true } },
     86: { type: 'sorting', config: { count: 16, maxValue: 500, mode: 'merge-sort', timeLimit: 120 } },
     87: { type: 'math', config: { problems: 3, mode: 'matrix', timeLimit: 120 } },
+    88: { type: 'word-scramble', config: { mode: 'cipher', cipherType: 'substitution', messageLength: 20 } },
 };
 
 // ============================================================
@@ -8330,6 +8331,11 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
+        if (config.mode === 'cipher') {
+            this.createCipherPuzzle(config);
+            return;
+        }
+
         if (multiWord && wordCount === 2) {
             this.createMultiWordScramblePuzzle(config);
             return;
@@ -9009,6 +9015,301 @@ class GameScene extends Phaser.Scene {
 
         // Start the first step
         setupStep();
+    }
+
+    createCipherPuzzle(config) {
+        const { width, height } = this.scale;
+
+        const phrases = [
+            'THE GAME IS ALMOST DONE',
+            'PUZZLES ARE SO MUCH FUN',
+            'KEEP GOING YOU GOT THIS',
+            'CRACK THE SECRET CODE',
+            'NEVER GIVE UP ON THIS',
+            'PLAY HARD AND WIN BIG',
+        ];
+
+        const originalMessage = Phaser.Utils.Array.GetRandom(phrases);
+
+        // Build substitution cipher: map each letter to a different letter
+        const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+        const shuffled = Phaser.Utils.Array.Shuffle([...alphabet]);
+        // Ensure no letter maps to itself
+        for (let i = 0; i < 26; i++) {
+            if (shuffled[i] === alphabet[i]) {
+                const swapIdx = (i + 1) % 26;
+                const tmp = shuffled[i];
+                shuffled[i] = shuffled[swapIdx];
+                shuffled[swapIdx] = tmp;
+            }
+        }
+        const cipherMap = {};   // plain -> cipher
+        const decipherMap = {}; // cipher -> plain
+        for (let i = 0; i < 26; i++) {
+            cipherMap[alphabet[i]] = shuffled[i];
+            decipherMap[shuffled[i]] = alphabet[i];
+        }
+
+        // Encode the message
+        const encodedMessage = originalMessage.split('').map(ch => {
+            if (ch === ' ') return ' ';
+            return cipherMap[ch] || ch;
+        }).join('');
+
+        // Pick 3-4 unique letters from the message as pre-revealed hints
+        const uniqueLetters = [...new Set(originalMessage.split('').filter(ch => ch !== ' '))];
+        const hintCount = Math.min(uniqueLetters.length, Phaser.Math.Between(3, 4));
+        const hintLetters = Phaser.Utils.Array.Shuffle([...uniqueLetters]).slice(0, hintCount);
+
+        // Player's current mapping: cipher letter -> guessed plain letter
+        const playerMap = {};
+        // Pre-fill hints
+        hintLetters.forEach(plainLetter => {
+            const cipherLetter = cipherMap[plainLetter];
+            playerMap[cipherLetter] = plainLetter;
+        });
+
+        // Instructions
+        this.add.text(width / 2, 40, 'Substitution Cipher', {
+            fontSize: '24px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 68, 'Decode the message! Click a letter below to assign it.', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Display encoded message as clickable letter cells
+        const cellSize = 28;
+        const cellPadding = 4;
+        const messageChars = encodedMessage.split('');
+        const cells = [];
+
+        // Break message into rows that fit the width
+        const maxCellsPerRow = Math.floor((width - 40) / (cellSize + cellPadding));
+        // Split by words to avoid breaking mid-word
+        const words = encodedMessage.split(' ');
+        const rows = [];
+        let currentRow = [];
+        let currentRowLen = 0;
+
+        words.forEach(word => {
+            const wordLen = word.length;
+            const needed = currentRowLen === 0 ? wordLen : wordLen + 1; // +1 for space
+            if (currentRowLen + needed > maxCellsPerRow && currentRow.length > 0) {
+                rows.push(currentRow.join(' '));
+                currentRow = [word];
+                currentRowLen = wordLen;
+            } else {
+                currentRow.push(word);
+                currentRowLen += needed;
+            }
+        });
+        if (currentRow.length > 0) rows.push(currentRow.join(' '));
+
+        const messageStartY = 100;
+        const rowHeight = cellSize * 2 + cellPadding + 8;
+        let selectedCipherLetter = null;
+        let selectedCellHighlights = [];
+
+        const updateAllCells = () => {
+            cells.forEach(cell => {
+                if (cell.cipherLetter === ' ') return;
+                const guess = playerMap[cell.cipherLetter];
+                cell.decodedText.setText(guess || '');
+                const isHint = hintLetters.includes(decipherMap[cell.cipherLetter]);
+                if (isHint) {
+                    cell.decodedText.setColor('#88cc88');
+                } else if (guess) {
+                    cell.decodedText.setColor('#ffdd44');
+                }
+            });
+        };
+
+        const highlightSelected = (cipherLetter) => {
+            // Reset all highlights
+            cells.forEach(cell => {
+                if (cell.cipherLetter === ' ') return;
+                const isHint = hintLetters.includes(decipherMap[cell.cipherLetter]);
+                cell.bg.setFillStyle(isHint ? 0x2a4a2a : 0x3a3a5a);
+            });
+            // Highlight cells matching selected cipher letter
+            if (cipherLetter) {
+                cells.forEach(cell => {
+                    if (cell.cipherLetter === cipherLetter) {
+                        cell.bg.setFillStyle(0x5a5a9a);
+                    }
+                });
+            }
+        };
+
+        const checkWin = () => {
+            // Check if all cipher letters in the message are correctly mapped
+            for (const ch of encodedMessage) {
+                if (ch === ' ') continue;
+                const plainLetter = decipherMap[ch];
+                if (playerMap[ch] !== plainLetter) return false;
+            }
+            return true;
+        };
+
+        rows.forEach((rowStr, rowIndex) => {
+            const rowChars = rowStr.split('');
+            const rowWidth = rowChars.length * (cellSize + cellPadding) - cellPadding;
+            const rowStartX = (width - rowWidth) / 2 + cellSize / 2;
+            const rowY = messageStartY + rowIndex * rowHeight;
+
+            rowChars.forEach((ch, colIndex) => {
+                const x = rowStartX + colIndex * (cellSize + cellPadding);
+
+                if (ch === ' ') {
+                    cells.push({ cipherLetter: ' ', bg: null, cipherText: null, decodedText: null });
+                    return;
+                }
+
+                const isHint = hintLetters.includes(decipherMap[ch]);
+                const bg = this.add.rectangle(x, rowY, cellSize, cellSize, isHint ? 0x2a4a2a : 0x3a3a5a)
+                    .setStrokeStyle(1, 0x6a6aaa);
+
+                // Cipher letter (encoded) on top
+                const cipherText = this.add.text(x, rowY - 2, ch, {
+                    fontSize: '16px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ff8866',
+                }).setOrigin(0.5);
+
+                // Decoded letter below
+                const decodedText = this.add.text(x, rowY + cellSize + 4, '', {
+                    fontSize: '16px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffdd44',
+                }).setOrigin(0.5);
+
+                const cell = { cipherLetter: ch, bg, cipherText, decodedText };
+                cells.push(cell);
+
+                if (!isHint) {
+                    bg.setInteractive({ useHandCursor: true });
+                    bg.on('pointerdown', () => {
+                        selectedCipherLetter = ch;
+                        highlightSelected(ch);
+                    });
+                }
+            });
+        });
+
+        updateAllCells();
+
+        // Decoder ring: A-Z buttons for the player to assign letters
+        const ringY = messageStartY + rows.length * rowHeight + 20;
+        const ringLabel = this.add.text(width / 2, ringY, 'Click an encoded letter above, then pick its decoded value:', {
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#888888',
+        }).setOrigin(0.5);
+
+        const btnSize = 30;
+        const btnPadding = 4;
+        const lettersPerRow = 13;
+        const ringStartY = ringY + 25;
+
+        // Find which plain letters are already used (to gray them out)
+        const getUsedPlainLetters = () => {
+            const used = new Set();
+            Object.values(playerMap).forEach(v => { if (v) used.add(v); });
+            return used;
+        };
+
+        const letterButtons = [];
+
+        for (let i = 0; i < 26; i++) {
+            const row = Math.floor(i / lettersPerRow);
+            const col = i % lettersPerRow;
+            const rowLetterCount = Math.min(lettersPerRow, 26 - row * lettersPerRow);
+            const rowWidth = rowLetterCount * (btnSize + btnPadding) - btnPadding;
+            const rowStartX = (width - rowWidth) / 2 + btnSize / 2;
+            const x = rowStartX + col * (btnSize + btnPadding);
+            const y = ringStartY + row * (btnSize + btnPadding + 2);
+            const letter = alphabet[i];
+
+            const bg = this.add.rectangle(x, y, btnSize, btnSize, 0x4a4a6a)
+                .setInteractive({ useHandCursor: true })
+                .setStrokeStyle(1, 0x6a6a8a);
+            const txt = this.add.text(x, y, letter, {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => bg.setFillStyle(0x6a6a9a));
+            bg.on('pointerout', () => {
+                const used = getUsedPlainLetters();
+                bg.setFillStyle(used.has(letter) ? 0x2a2a3a : 0x4a4a6a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (!selectedCipherLetter) return;
+                const isHintCipher = hintLetters.includes(decipherMap[selectedCipherLetter]);
+                if (isHintCipher) return;
+
+                // Remove any existing mapping that uses this plain letter (avoid duplicates)
+                Object.keys(playerMap).forEach(k => {
+                    if (playerMap[k] === letter && !hintLetters.includes(decipherMap[k])) {
+                        delete playerMap[k];
+                    }
+                });
+
+                playerMap[selectedCipherLetter] = letter;
+                updateAllCells();
+                updateButtonColors();
+
+                if (checkWin()) {
+                    // Win!
+                    cells.forEach(cell => {
+                        if (cell.bg) cell.bg.setFillStyle(0x44dd44);
+                    });
+                    letterButtons.forEach(b => b.bg.disableInteractive());
+
+                    this.add.text(width / 2, ringStartY + 90, 'Decoded!', {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#44dd44',
+                    }).setOrigin(0.5);
+
+                    this.time.delayedCall(1000, () => {
+                        this.scene.start('LevelCompleteScene', { level: this.level });
+                    });
+                }
+            });
+
+            letterButtons.push({ bg, txt, letter });
+        }
+
+        const updateButtonColors = () => {
+            const used = getUsedPlainLetters();
+            letterButtons.forEach(b => {
+                b.bg.setFillStyle(used.has(b.letter) ? 0x2a2a3a : 0x4a4a6a);
+                b.txt.setColor(used.has(b.letter) ? '#666666' : '#ffffff');
+            });
+        };
+
+        updateButtonColors();
+
+        // Clear mapping button (only clears non-hint mappings)
+        this.createButton(width / 2, ringStartY + 70 + (Math.ceil(26 / lettersPerRow) - 1) * (btnSize + btnPadding), 'Clear Guesses', () => {
+            Object.keys(playerMap).forEach(k => {
+                if (!hintLetters.includes(decipherMap[k])) {
+                    delete playerMap[k];
+                }
+            });
+            selectedCipherLetter = null;
+            highlightSelected(null);
+            updateAllCells();
+            updateButtonColors();
+        });
     }
 
     createCrosswordPuzzle(config) {
