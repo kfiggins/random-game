@@ -71,6 +71,7 @@ const LevelRegistry = {
     64: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, interleaved: true, rules: 3 } },
     65: { type: 'reaction-time', config: { targets: 15, targetSize: 20, stayTime: 1200, timeLimit: 20, hasDecoys: true, moving: true, shrinking: true } },
     66: { type: 'pattern-complete', config: { patternLength: 16, numChoices: 8, is2D: true, fractal: true } },
+    67: { type: 'word-scramble', config: { mode: 'crossword', words: 4 } },
 };
 
 // ============================================================
@@ -4884,6 +4885,11 @@ class GameScene extends Phaser.Scene {
         const { width, height } = this.scale;
         const { wordLength, showHint, multiWord, wordCount } = config;
 
+        if (config.mode === 'crossword') {
+            this.createCrosswordPuzzle(config);
+            return;
+        }
+
         if (multiWord && wordCount === 2) {
             this.createMultiWordScramblePuzzle(config);
             return;
@@ -5294,6 +5300,283 @@ class GameScene extends Phaser.Scene {
             activeRow = 1;
             updateRowIndicators();
         });
+    }
+
+    createCrosswordPuzzle(config) {
+        const { width, height } = this.scale;
+
+        // Hardcoded crossword layouts: each has words with positions/directions and clues
+        // Grid coordinates are (col, row), direction is 'across' or 'down'
+        const layouts = [
+            {
+                words: [
+                    { word: 'STAR', clue: 'Shines in the night sky', col: 0, row: 0, dir: 'across' },
+                    { word: 'TREE', clue: 'Grows in a forest', col: 0, row: 0, dir: 'down' },
+                    { word: 'RAIN', clue: 'Falls from clouds', col: 2, row: 0, dir: 'down' },
+                    { word: 'NEST', clue: 'A bird\'s home', col: 0, row: 2, dir: 'across' },
+                ],
+            },
+            {
+                words: [
+                    { word: 'FISH', clue: 'Swims in water', col: 0, row: 0, dir: 'across' },
+                    { word: 'FIRE', clue: 'Hot and bright', col: 0, row: 0, dir: 'down' },
+                    { word: 'HIDE', clue: 'Seek\'s partner', col: 2, row: 0, dir: 'down' },
+                    { word: 'ROSE', clue: 'A red flower', col: 0, row: 2, dir: 'across' },
+                ],
+            },
+            {
+                words: [
+                    { word: 'LAMP', clue: 'Provides light', col: 0, row: 0, dir: 'across' },
+                    { word: 'LIME', clue: 'A green citrus fruit', col: 0, row: 0, dir: 'down' },
+                    { word: 'MIST', clue: 'Thin fog', col: 2, row: 0, dir: 'down' },
+                    { word: 'MAPS', clue: 'Help you navigate', col: 0, row: 2, dir: 'across' },
+                ],
+            },
+        ];
+
+        const layout = Phaser.Utils.Array.GetRandom(layouts);
+        const words = layout.words;
+
+        // Build the grid: find dimensions
+        let maxCol = 0, maxRow = 0;
+        const gridCells = {}; // key: "col,row" -> { letter, wordIndices }
+        words.forEach((w, wi) => {
+            for (let i = 0; i < w.word.length; i++) {
+                const col = w.dir === 'across' ? w.col + i : w.col;
+                const row = w.dir === 'down' ? w.row + i : w.row;
+                const key = `${col},${row}`;
+                if (!gridCells[key]) {
+                    gridCells[key] = { letter: w.word[i], wordIndices: [], placed: null };
+                }
+                gridCells[key].wordIndices.push(wi);
+                if (col > maxCol) maxCol = col;
+                if (row > maxRow) maxRow = row;
+            }
+        });
+
+        const gridW = maxCol + 1;
+        const gridH = maxRow + 1;
+        const cellSize = 52;
+        const cellGap = 4;
+        const gridPixelW = gridW * (cellSize + cellGap) - cellGap;
+        const gridPixelH = gridH * (cellSize + cellGap) - cellGap;
+        const gridStartX = width / 2 - gridPixelW / 2;
+        const gridStartY = 120;
+
+        // Instructions
+        this.add.text(width / 2, 30, 'Crossword Puzzle', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 58, 'Place letters from the pool into the grid', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Draw clues
+        const clueStartY = gridStartY + gridPixelH + 20;
+        const clueX = width / 2;
+        const acrossClues = words.filter(w => w.dir === 'across');
+        const downClues = words.filter(w => w.dir === 'down');
+
+        let cy = clueStartY;
+        this.add.text(clueX - 150, cy, 'Across:', {
+            fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#88aacc',
+        });
+        this.add.text(clueX + 30, cy, 'Down:', {
+            fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#cc88aa',
+        });
+        cy += 20;
+        const maxClues = Math.max(acrossClues.length, downClues.length);
+        for (let i = 0; i < maxClues; i++) {
+            if (i < acrossClues.length) {
+                this.add.text(clueX - 150, cy + i * 18, `${i + 1}. ${acrossClues[i].clue}`, {
+                    fontSize: '12px', fontFamily: 'Arial, sans-serif', color: '#88aacc',
+                });
+            }
+            if (i < downClues.length) {
+                this.add.text(clueX + 30, cy + i * 18, `${i + 1}. ${downClues[i].clue}`, {
+                    fontSize: '12px', fontFamily: 'Arial, sans-serif', color: '#cc88aa',
+                });
+            }
+        }
+
+        // Collect all unique letters for the pool
+        const allLetters = [];
+        Object.keys(gridCells).forEach(key => {
+            allLetters.push(gridCells[key].letter);
+        });
+        let scrambled = Phaser.Utils.Array.Shuffle([...allLetters]);
+
+        // State
+        let selectedTile = null;
+        const cellObjects = {}; // key -> { bg, txt }
+
+        // Draw grid cells
+        Object.keys(gridCells).forEach(key => {
+            const [colStr, rowStr] = key.split(',');
+            const col = parseInt(colStr);
+            const row = parseInt(rowStr);
+            const x = gridStartX + col * (cellSize + cellGap) + cellSize / 2;
+            const y = gridStartY + row * (cellSize + cellGap) + cellSize / 2;
+
+            const bg = this.add.rectangle(x, y, cellSize, cellSize, 0x3a3a5a)
+                .setStrokeStyle(2, 0x6a6aaa)
+                .setInteractive({ useHandCursor: true });
+            const txt = this.add.text(x, y, '', {
+                fontSize: '28px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            cellObjects[key] = { bg, txt };
+
+            bg.on('pointerdown', () => {
+                if (selectedTile) {
+                    // Place the selected letter
+                    const cell = gridCells[key];
+                    if (cell.placed !== null) {
+                        // Return existing letter to pool
+                        const oldTile = cell.placed;
+                        oldTile.bg.setVisible(true);
+                        oldTile.txt.setVisible(true);
+                        oldTile.bg.setInteractive({ useHandCursor: true });
+                    }
+                    cell.placed = selectedTile;
+                    txt.setText(selectedTile.letter);
+                    selectedTile.bg.setVisible(false);
+                    selectedTile.txt.setVisible(false);
+                    selectedTile.bg.disableInteractive();
+                    selectedTile.outline.setVisible(false);
+                    selectedTile = null;
+                    bg.setFillStyle(0x3a3a5a);
+
+                    // Check completion
+                    this.checkCrosswordCompletion(gridCells, cellObjects, words);
+                } else if (gridCells[key].placed !== null) {
+                    // Remove letter from cell back to pool
+                    const tile = gridCells[key].placed;
+                    tile.bg.setVisible(true);
+                    tile.txt.setVisible(true);
+                    tile.bg.setInteractive({ useHandCursor: true });
+                    gridCells[key].placed = null;
+                    txt.setText('');
+                }
+            });
+        });
+
+        // Letter pool
+        const poolY = clueStartY + maxClues * 18 + 30;
+        const tileSize = 46;
+        const tileSpacing = 54;
+        const poolStartX = width / 2 - (tileSpacing * (scrambled.length - 1)) / 2;
+        const letterTiles = [];
+
+        for (let i = 0; i < scrambled.length; i++) {
+            const x = poolStartX + i * tileSpacing;
+            const bg = this.add.rectangle(x, poolY, tileSize, tileSize, 0x4a4a8a)
+                .setInteractive({ useHandCursor: true });
+            const txt = this.add.text(x, poolY, scrambled[i], {
+                fontSize: '26px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            const outline = this.add.rectangle(x, poolY, tileSize + 4, tileSize + 4)
+                .setStrokeStyle(3, 0xffdd44)
+                .setFillStyle()
+                .setVisible(false);
+
+            const tile = { bg, txt, letter: scrambled[i], outline };
+            letterTiles.push(tile);
+
+            bg.on('pointerover', () => { if (bg.visible) bg.setFillStyle(0x6a6aaa); });
+            bg.on('pointerout', () => { if (bg.visible) bg.setFillStyle(0x4a4a8a); });
+
+            bg.on('pointerdown', () => {
+                // Deselect previous
+                if (selectedTile && selectedTile !== tile) {
+                    selectedTile.outline.setVisible(false);
+                }
+                if (selectedTile === tile) {
+                    selectedTile.outline.setVisible(false);
+                    selectedTile = null;
+                } else {
+                    selectedTile = tile;
+                    tile.outline.setVisible(true);
+                }
+            });
+        }
+
+        // Clear button
+        this.createButton(width / 2, poolY + 60, 'Clear All', () => {
+            Object.keys(gridCells).forEach(key => {
+                const cell = gridCells[key];
+                if (cell.placed !== null) {
+                    cell.placed.bg.setVisible(true);
+                    cell.placed.txt.setVisible(true);
+                    cell.placed.bg.setInteractive({ useHandCursor: true });
+                    cell.placed = null;
+                    cellObjects[key].txt.setText('');
+                    cellObjects[key].bg.setFillStyle(0x3a3a5a);
+                }
+            });
+            if (selectedTile) {
+                selectedTile.outline.setVisible(false);
+                selectedTile = null;
+            }
+        });
+    }
+
+    checkCrosswordCompletion(gridCells, cellObjects, words) {
+        // Check if all cells are filled
+        const allFilled = Object.keys(gridCells).every(key => gridCells[key].placed !== null);
+        if (!allFilled) return;
+
+        // Check each word
+        let allCorrect = true;
+        for (const w of words) {
+            for (let i = 0; i < w.word.length; i++) {
+                const col = w.dir === 'across' ? w.col + i : w.col;
+                const row = w.dir === 'down' ? w.row + i : w.row;
+                const key = `${col},${row}`;
+                if (gridCells[key].placed.letter !== w.word[i]) {
+                    allCorrect = false;
+                    break;
+                }
+            }
+            if (!allCorrect) break;
+        }
+
+        if (allCorrect) {
+            Object.keys(cellObjects).forEach(key => {
+                cellObjects[key].bg.setFillStyle(0x44dd44);
+                cellObjects[key].bg.disableInteractive();
+            });
+
+            const { width } = this.scale;
+            this.add.text(width / 2, 90, 'Correct!', {
+                fontSize: '28px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#44dd44',
+            }).setOrigin(0.5);
+
+            this.time.delayedCall(800, () => {
+                this.scene.start('LevelCompleteScene', { level: this.level });
+            });
+        } else {
+            // Flash red
+            Object.keys(cellObjects).forEach(key => {
+                cellObjects[key].bg.setFillStyle(0xff4444);
+            });
+            this.time.delayedCall(500, () => {
+                Object.keys(cellObjects).forEach(key => {
+                    cellObjects[key].bg.setFillStyle(0x3a3a5a);
+                });
+            });
+        }
     }
 
     createSpotDifferencePuzzle(config) {
