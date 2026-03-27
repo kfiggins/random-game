@@ -67,6 +67,7 @@ const LevelRegistry = {
     60: { type: 'multi-puzzle', config: { stages: 4, timeLimit: 150 } },
     61: { type: 'memory-cards', config: { rows: 6, cols: 7, timeLimit: 35, reshuffleAfter: 2, flipBackSpeed: 300, blackout: true, fakeCards: 2 } },
     62: { type: 'sorting', config: { count: 10, maxValue: 200, adjacentOnly: true, maxSwaps: 25, blind: true } },
+    63: { type: 'maze', config: { width: 27, height: 27, cellSize: 20, fogOfWar: true, viewRadius: 2, enemies: 5, traps: 6, timeLimit: 120, hasKeys: true, keys: 3 } },
 };
 
 // ============================================================
@@ -1052,7 +1053,7 @@ class GameScene extends Phaser.Scene {
 
     createMazePuzzle(config) {
         const { width, height } = this.scale;
-        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps } = config;
+        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps, timeLimit } = config;
 
         // Generate maze using recursive backtracker algorithm
         // 0 = path, 1 = wall, 2+ = door (blocked until key collected)
@@ -1193,7 +1194,7 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        const instrText = hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
+        const instrText = (hasKeys && numEnemies && numTraps && timeLimit) ? 'Keys, enemies, traps & timer! Reach the star!' : hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
         this.add.text(width / 2, 30, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
@@ -1207,6 +1208,32 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
         }).setOrigin(0.5);
+
+        // Timer (if timeLimit > 0)
+        let mazeTimerEvent = null;
+        if (timeLimit && timeLimit > 0) {
+            let timeLeft = timeLimit;
+            const timerText = this.add.text(width / 2, height - 105, `Time: ${timeLeft}s`, {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            mazeTimerEvent = this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${timeLeft}s`);
+                    if (timeLeft <= 10) {
+                        timerText.setColor('#ff4444');
+                    }
+                    if (timeLeft <= 0) {
+                        this.handleTimeUp();
+                    }
+                },
+            });
+        }
 
         // Key inventory display
         const keyDisplayTexts = [];
@@ -1614,6 +1641,7 @@ class GameScene extends Phaser.Scene {
             // Check win
             if (playerCol === mazeW - 1 && playerRow === mazeH - 1) {
                 inputLocked = true;
+                if (mazeTimerEvent) mazeTimerEvent.remove(false);
                 player.setFillStyle(0xffdd44);
                 this.time.delayedCall(500, () => {
                     this.scene.start('LevelCompleteScene', { level: this.level });
