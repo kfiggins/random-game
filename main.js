@@ -13,6 +13,7 @@ const LevelRegistry = {
     6: { type: 'pattern-complete', config: { patternLength: 6, numChoices: 4 } },
     7: { type: 'reaction-time', config: { targets: 5, targetSize: 50, stayTime: 2500, timeLimit: 15 } },
     8: { type: 'math', config: { problems: 3, operations: ['add'], maxNum: 10, timeLimit: 30 } },
+    9: { type: 'word-scramble', config: { wordLength: 4, showHint: true } },
 };
 
 // ============================================================
@@ -198,6 +199,8 @@ class GameScene extends Phaser.Scene {
             this.createReactionTimePuzzle(levelData.config);
         } else if (levelData && levelData.type === 'math') {
             this.createMathPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'word-scramble') {
+            this.createWordScramblePuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -1405,6 +1408,167 @@ class GameScene extends Phaser.Scene {
         this.createButton(width / 2, height / 2 + 90, 'Back to Menu', () => {
             this.scene.start('MenuScene');
         }, 0x5a3a3a, 0x7a5a5a);
+    }
+
+    createWordScramblePuzzle(config) {
+        const { width, height } = this.scale;
+        const { showHint } = config;
+
+        const words = ['game', 'play', 'code', 'fish', 'star', 'moon', 'tree', 'bird', 'cake', 'lion'];
+        const targetWord = Phaser.Utils.Array.GetRandom(words);
+        const letters = targetWord.split('');
+
+        // Scramble letters (ensure they're actually scrambled)
+        let scrambled = [...letters];
+        let attempts = 0;
+        do {
+            scrambled = Phaser.Utils.Array.Shuffle([...letters]);
+            attempts++;
+        } while (scrambled.join('') === targetWord && attempts < 20);
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Unscramble the word!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Hint
+        if (showHint) {
+            this.add.text(width / 2, 100, `Hint: starts with "${targetWord[0].toUpperCase()}"`, {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#88aa88',
+            }).setOrigin(0.5);
+        }
+
+        const tileSize = 64;
+        const tileSpacing = 80;
+        const startX = width / 2 - (tileSpacing * (letters.length - 1)) / 2;
+        const scrambleY = height / 2 - 60;
+        const answerY = height / 2 + 60;
+
+        // State
+        const answer = [];
+        const letterTiles = [];
+        const answerSlots = [];
+
+        // Create answer slots (empty boxes)
+        for (let i = 0; i < letters.length; i++) {
+            const x = startX + i * tileSpacing;
+            const bg = this.add.rectangle(x, answerY, tileSize, tileSize, 0x3a3a5a)
+                .setStrokeStyle(2, 0x6a6aaa)
+                .setInteractive({ useHandCursor: true });
+            const txt = this.add.text(x, answerY, '', {
+                fontSize: '32px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerdown', () => {
+                // Remove letter from this slot
+                const slotIndex = answerSlots.indexOf(bg);
+                if (answer[slotIndex] !== null && answer[slotIndex] !== undefined) {
+                    const removedEntry = answer[slotIndex];
+                    answer[slotIndex] = null;
+                    txt.setText('');
+                    // Show the letter tile again
+                    removedEntry.bg.setVisible(true);
+                    removedEntry.txt.setVisible(true);
+                    removedEntry.bg.setInteractive({ useHandCursor: true });
+                }
+            });
+
+            answerSlots.push(bg);
+            answerSlots[i]._txt = txt;
+        }
+
+        // Create scrambled letter tiles
+        for (let i = 0; i < scrambled.length; i++) {
+            const x = startX + i * tileSpacing;
+            const bg = this.add.rectangle(x, scrambleY, tileSize, tileSize, 0x4a4a8a)
+                .setInteractive({ useHandCursor: true });
+            const txt = this.add.text(x, scrambleY, scrambled[i].toUpperCase(), {
+                fontSize: '32px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => { if (bg.visible) bg.setFillStyle(0x6a6aaa); });
+            bg.on('pointerout', () => { if (bg.visible) bg.setFillStyle(0x4a4a8a); });
+
+            const tile = { bg, txt, letter: scrambled[i] };
+            letterTiles.push(tile);
+
+            bg.on('pointerdown', () => {
+                // Find first empty answer slot
+                let emptyIndex = -1;
+                for (let j = 0; j < answer.length; j++) {
+                    if (answer[j] === null) { emptyIndex = j; break; }
+                }
+                if (emptyIndex === -1) {
+                    emptyIndex = answer.length;
+                }
+                if (emptyIndex >= letters.length) return;
+
+                // Place letter in answer
+                answer[emptyIndex] = tile;
+                answerSlots[emptyIndex]._txt.setText(scrambled[i].toUpperCase());
+
+                // Hide the tile
+                bg.setVisible(false);
+                txt.setVisible(false);
+                bg.disableInteractive();
+
+                // Check if answer is complete
+                const currentAnswer = answer.map(entry => entry ? entry.letter : '').join('');
+                if (currentAnswer.length === letters.length && !answer.includes(null)) {
+                    if (currentAnswer === targetWord) {
+                        // Correct!
+                        answerSlots.forEach(slot => {
+                            slot.setFillStyle(0x44dd44);
+                            slot.disableInteractive();
+                        });
+                        letterTiles.forEach(t => t.bg.disableInteractive());
+
+                        this.add.text(width / 2, answerY + 70, 'Correct!', {
+                            fontSize: '28px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#44dd44',
+                        }).setOrigin(0.5);
+
+                        this.time.delayedCall(800, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    } else {
+                        // Wrong - flash red briefly
+                        answerSlots.forEach(slot => slot.setFillStyle(0xff4444));
+                        this.time.delayedCall(500, () => {
+                            answerSlots.forEach(slot => slot.setFillStyle(0x3a3a5a));
+                        });
+                    }
+                }
+            });
+        }
+
+        // Initialize answer array with nulls
+        for (let i = 0; i < letters.length; i++) {
+            answer.push(null);
+        }
+
+        // Clear button
+        this.createButton(width / 2, answerY + 130, 'Clear', () => {
+            // Return all letters to scramble row
+            for (let i = 0; i < answer.length; i++) {
+                if (answer[i] !== null) {
+                    answer[i].bg.setVisible(true);
+                    answer[i].txt.setVisible(true);
+                    answer[i].bg.setInteractive({ useHandCursor: true });
+                    answer[i] = null;
+                    answerSlots[i]._txt.setText('');
+                }
+            }
+        });
     }
 
     createButton(x, y, label, callback, color = 0x4a4a8a, hoverColor = 0x6a6aaa) {
