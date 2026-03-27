@@ -38,6 +38,7 @@ const LevelRegistry = {
     31: { type: 'memory-cards', config: { rows: 4, cols: 5, timeLimit: 60, reshuffleAfter: 3 } },
     32: { type: 'color-chain', config: { gridSize: 6, colors: 5, fillBoard: true } },
     33: { type: 'light-toggle', config: { size: 5, randomize: true } },
+    34: { type: 'reaction-time', config: { targets: 12, targetSize: 35, stayTime: 1800, timeLimit: 25, hasDecoys: true, moving: true } },
 };
 
 // ============================================================
@@ -1492,13 +1493,15 @@ class GameScene extends Phaser.Scene {
 
     createReactionTimePuzzle(config) {
         const { width, height } = this.scale;
-        const { targets, targetSize, stayTime, timeLimit, hasDecoys } = config;
+        const { targets, targetSize, stayTime, timeLimit, hasDecoys, moving } = config;
 
         const targetColors = [0x44dd44, 0x4488ff, 0xffdd44, 0xff44ff, 0x44dddd];
-        const requiredScore = hasDecoys ? 5 : 3;
+        const requiredScore = moving ? 8 : (hasDecoys ? 5 : 3);
 
         // Instructions
-        const instructions = hasDecoys
+        const instructions = moving
+            ? 'Click the moving targets! Avoid the red X decoys!'
+            : hasDecoys
             ? 'Click the colored circles! Avoid the red X decoys!'
             : 'Click the targets before they disappear!';
         this.add.text(width / 2, 70, instructions, {
@@ -1596,6 +1599,45 @@ class GameScene extends Phaser.Scene {
                 decoyX.strokePath();
             }
 
+            // Moving targets: assign velocity and update loop
+            let moveTimer = null;
+            if (moving) {
+                const speed = 1.5;
+                const angle = Math.random() * Math.PI * 2;
+                let vx = Math.cos(angle) * speed;
+                let vy = Math.sin(angle) * speed;
+                const minX = margin;
+                const maxX = width - margin;
+                const minY = 100;
+                const maxY = height - 120;
+
+                moveTimer = this.time.addEvent({
+                    delay: 16,
+                    loop: true,
+                    callback: () => {
+                        if (!circle.active) { moveTimer.remove(false); return; }
+                        let nx = circle.x + vx;
+                        let ny = circle.y + vy;
+                        if (nx <= minX || nx >= maxX) { vx = -vx; nx = Phaser.Math.Clamp(nx, minX, maxX); }
+                        if (ny <= minY || ny >= maxY) { vy = -vy; ny = Phaser.Math.Clamp(ny, minY, maxY); }
+                        circle.x = nx;
+                        circle.y = ny;
+                        if (decoyX) {
+                            // Redraw decoy X at new position
+                            decoyX.clear();
+                            const lineLen = targetSize * 0.6;
+                            decoyX.lineStyle(4, 0xffffff);
+                            decoyX.beginPath();
+                            decoyX.moveTo(nx - lineLen, ny - lineLen);
+                            decoyX.lineTo(nx + lineLen, ny + lineLen);
+                            decoyX.moveTo(nx + lineLen, ny - lineLen);
+                            decoyX.lineTo(nx - lineLen, ny + lineLen);
+                            decoyX.strokePath();
+                        }
+                    },
+                });
+            }
+
             // Fade in
             this.tweens.add({
                 targets: decoyX ? [circle, decoyX] : circle,
@@ -1611,6 +1653,7 @@ class GameScene extends Phaser.Scene {
                 if (clicked || gameOver) return;
                 clicked = true;
                 circle.disableInteractive();
+                if (moveTimer) moveTimer.remove(false);
 
                 if (isDecoy) {
                     score = Math.max(0, score - 1);
@@ -1640,6 +1683,7 @@ class GameScene extends Phaser.Scene {
                 if (clicked || gameOver) return;
                 clicked = true;
                 circle.disableInteractive();
+                if (moveTimer) moveTimer.remove(false);
 
                 // Fade out
                 this.tweens.add({
