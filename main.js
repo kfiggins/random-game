@@ -44,6 +44,7 @@ const LevelRegistry = {
     37: { type: 'sliding-puzzle', config: { size: 4, useImage: true } },
     38: { type: 'word-scramble', config: { wordLength: 7, showHint: false, multiWord: true, wordCount: 2 } },
     39: { type: 'math', config: { problems: 4, mode: 'fill-operators', timeLimit: 60 } },
+    40: { type: 'tower-of-hanoi', config: { discs: 5 } },
 };
 
 // ============================================================
