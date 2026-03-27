@@ -90,6 +90,7 @@ const LevelRegistry = {
     83: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, mode: 'recursive' } },
     84: { type: 'maze', config: { width: 35, height: 35, cellSize: 16, fogOfWar: true, viewRadius: 2, enemies: 8, traps: 10, timeLimit: 75, hasKeys: true, keys: 5, teleporters: 3, darkZones: true } },
     85: { type: 'pattern-complete', config: { patternLength: 25, numChoices: 10, is2D: true, illusion: true } },
+    86: { type: 'sorting', config: { count: 16, maxValue: 500, mode: 'merge-sort', timeLimit: 120 } },
 };
 
 // ============================================================
@@ -894,6 +895,11 @@ class GameScene extends Phaser.Scene {
 
     createSortingPuzzle(config) {
         const { width, height } = this.scale;
+
+        if (config.mode === 'merge-sort') {
+            return this.createMergeSortPuzzle(config);
+        }
+
         const { count, maxValue, maxSwaps, adjacentOnly, blind } = config;
 
         // Generate unique random numbers
@@ -1091,6 +1097,262 @@ class GameScene extends Phaser.Scene {
             updateArrows();
             this._blindUpdateArrows = updateArrows;
         }
+    }
+
+    createMergeSortPuzzle(config) {
+        const { width, height } = this.scale;
+        const { count, maxValue, timeLimit } = config;
+
+        // Generate unique random numbers
+        const allNumbers = [];
+        while (allNumbers.length < count) {
+            const n = Phaser.Math.Between(1, maxValue);
+            if (!allNumbers.includes(n)) allNumbers.push(n);
+        }
+
+        // Split into 4 groups of 4 and sort each group
+        const groupSize = Math.floor(count / 4);
+        const groups = [];
+        for (let g = 0; g < 4; g++) {
+            const group = allNumbers.slice(g * groupSize, (g + 1) * groupSize).sort((a, b) => a - b);
+            groups.push(group);
+        }
+
+        // The correct full sorted order
+        const fullSorted = [].concat(...groups).slice().sort((a, b) => a - b);
+
+        // Track which elements have been picked (merged) so far
+        const merged = [];
+
+        // Instructions
+        this.add.text(width / 2, 50, 'Merge Sort! Pick the smallest front element from any group.', {
+            fontSize: '16px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) timerText.setColor('#ff4444');
+                if (timeLeft <= 0) this.handleTimeUp();
+            },
+        });
+
+        // Progress text
+        const progressText = this.add.text(width / 2, height - 110, `Merged: 0/${count}`, {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#88ff88',
+        }).setOrigin(0.5);
+
+        // Layout: 4 groups displayed as columns
+        const groupSpacing = 160;
+        const totalGroupWidth = 3 * groupSpacing;
+        const groupStartX = (width - totalGroupWidth) / 2;
+        const groupStartY = 100;
+        const cardW = 60;
+        const cardH = 36;
+        const cardPadding = 6;
+
+        // Group labels
+        const groupLabels = ['Group A', 'Group B', 'Group C', 'Group D'];
+
+        // Store card objects per group
+        const groupCards = [];
+
+        // Merged result area at bottom
+        const mergedStartY = height - 160;
+        const mergedCardW = 42;
+        const mergedPadding = 4;
+        const mergedTotalW = count * mergedCardW + (count - 1) * mergedPadding;
+        const mergedStartX = (width - mergedTotalW) / 2 + mergedCardW / 2;
+        const mergedCards = [];
+
+        this.add.text(width / 2, mergedStartY - 22, 'Merged Result:', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#888888',
+        }).setOrigin(0.5);
+
+        // Draw empty merged slots
+        for (let i = 0; i < count; i++) {
+            const x = mergedStartX + i * (mergedCardW + mergedPadding);
+            const slot = this.add.rectangle(x, mergedStartY, mergedCardW, 30, 0x2a2a4a)
+                .setStrokeStyle(1, 0x555577);
+            const label = this.add.text(x, mergedStartY, '', {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#44ff44',
+            }).setOrigin(0.5);
+            mergedCards.push({ slot, label });
+        }
+
+        const scene = this;
+
+        // Render each group as a vertical column of cards
+        for (let g = 0; g < 4; g++) {
+            const gx = groupStartX + g * groupSpacing;
+            const cards = [];
+
+            this.add.text(gx, groupStartY - 10, groupLabels[g], {
+                fontSize: '14px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaacc',
+            }).setOrigin(0.5);
+
+            for (let i = 0; i < groups[g].length; i++) {
+                const cy = groupStartY + 20 + i * (cardH + cardPadding);
+
+                const bg = this.add.rectangle(gx, cy, cardW, cardH, 0x3a3a6a)
+                    .setStrokeStyle(1, 0x5555aa);
+
+                const label = this.add.text(gx, cy, `${groups[g][i]}`, {
+                    fontSize: '20px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                // Only the front element (index 0) is interactive
+                if (i === 0) {
+                    bg.setInteractive({ useHandCursor: true });
+                    bg.setFillStyle(0x4a4a8a);
+                    bg.setStrokeStyle(2, 0x8888ff);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                    bg.on('pointerdown', () => {
+                        const value = groups[g][0];
+                        const expectedValue = fullSorted[merged.length];
+
+                        if (value === expectedValue) {
+                            // Correct pick
+                            groups[g].shift();
+                            merged.push(value);
+
+                            // Update merged display
+                            const mIdx = merged.length - 1;
+                            mergedCards[mIdx].label.setText(`${value}`);
+                            mergedCards[mIdx].slot.setFillStyle(0x336633);
+
+                            // Rebuild all group columns
+                            rebuildGroups();
+
+                            progressText.setText(`Merged: ${merged.length}/${count}`);
+
+                            if (merged.length === count) {
+                                timerEvent.remove(false);
+                                // Flash success
+                                mergedCards.forEach(mc => mc.slot.setFillStyle(0x228822));
+                                scene.time.delayedCall(600, () => {
+                                    scene.scene.start('LevelCompleteScene', { level: scene.level });
+                                });
+                            }
+                        } else {
+                            // Wrong pick - flash red
+                            bg.setFillStyle(0xaa2222);
+                            label.setColor('#ff4444');
+                            scene.time.delayedCall(400, () => {
+                                bg.setFillStyle(0x4a4a8a);
+                                label.setColor('#ffffff');
+                            });
+                        }
+                    });
+                }
+
+                cards.push({ bg, label });
+            }
+
+            groupCards.push(cards);
+        }
+
+        const rebuildGroups = () => {
+            // Destroy all existing group cards
+            for (let g = 0; g < 4; g++) {
+                groupCards[g].forEach(c => {
+                    c.bg.destroy();
+                    c.label.destroy();
+                });
+                groupCards[g] = [];
+            }
+
+            // Redraw
+            for (let g = 0; g < 4; g++) {
+                const gx = groupStartX + g * groupSpacing;
+                const cards = [];
+
+                for (let i = 0; i < groups[g].length; i++) {
+                    const cy = groupStartY + 20 + i * (cardH + cardPadding);
+
+                    const bg = scene.add.rectangle(gx, cy, cardW, cardH, 0x3a3a6a)
+                        .setStrokeStyle(1, 0x5555aa);
+
+                    const label = scene.add.text(gx, cy, `${groups[g][i]}`, {
+                        fontSize: '20px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+
+                    if (i === 0) {
+                        bg.setInteractive({ useHandCursor: true });
+                        bg.setFillStyle(0x4a4a8a);
+                        bg.setStrokeStyle(2, 0x8888ff);
+
+                        bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                        bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                        bg.on('pointerdown', () => {
+                            const value = groups[g][0];
+                            const expectedValue = fullSorted[merged.length];
+
+                            if (value === expectedValue) {
+                                groups[g].shift();
+                                merged.push(value);
+
+                                const mIdx = merged.length - 1;
+                                mergedCards[mIdx].label.setText(`${value}`);
+                                mergedCards[mIdx].slot.setFillStyle(0x336633);
+
+                                rebuildGroups();
+
+                                progressText.setText(`Merged: ${merged.length}/${count}`);
+
+                                if (merged.length === count) {
+                                    timerEvent.remove(false);
+                                    mergedCards.forEach(mc => mc.slot.setFillStyle(0x228822));
+                                    scene.time.delayedCall(600, () => {
+                                        scene.scene.start('LevelCompleteScene', { level: scene.level });
+                                    });
+                                }
+                            } else {
+                                bg.setFillStyle(0xaa2222);
+                                label.setColor('#ff4444');
+                                scene.time.delayedCall(400, () => {
+                                    bg.setFillStyle(0x4a4a8a);
+                                    label.setColor('#ffffff');
+                                });
+                            }
+                        });
+                    }
+
+                    cards.push({ bg, label });
+                }
+
+                groupCards[g] = cards;
+            }
+        };
     }
 
     createMazePuzzle(config) {
