@@ -84,7 +84,7 @@ const LevelRegistry = {
     64: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, interleaved: true, rules: 3 } },
     65: { type: 'reaction-time', config: { targets: 15, targetSize: 20, stayTime: 1200, timeLimit: 18, hasDecoys: true, moving: true, shrinking: true } },
     66: { type: 'pattern-complete', config: { patternLength: 16, numChoices: 8, is2D: true, fractal: true } },
-    67: { type: 'word-scramble', config: { mode: 'crossword', words: 4, timeLimit: 60 } },
+    67: { type: 'word-scramble', config: { mode: 'crossword', timeLimit: 60 } },
     68: { type: 'math', config: { problems: 3, mode: 'equation-builder', timeLimit: 50 } },
     69: { type: 'color-chain', config: { gridSize: 10, colors: 12, fillBoard: true, timeLimit: 120 } },
     70: { type: 'multi-puzzle', config: { stages: 5, timeLimit: 140 } },
@@ -105,7 +105,7 @@ const LevelRegistry = {
     85: { type: 'pattern-complete', config: { patternLength: 25, numChoices: 10, is2D: true, illusion: true } },
     86: { type: 'sorting', config: { count: 16, maxValue: 500, mode: 'merge-sort', timeLimit: 75 } },
     87: { type: 'math', config: { problems: 3, mode: 'matrix', timeLimit: 50 } },
-    88: { type: 'word-scramble', config: { mode: 'cipher', cipherType: 'substitution', messageLength: 20, timeLimit: 75 } },
+    88: { type: 'word-scramble', config: { mode: 'cipher', timeLimit: 75 } },
     89: { type: 'jigsaw', config: { rows: 7, cols: 7, canRotate: true, timeLimit: 75 } },
     90: { type: 'multi-puzzle', config: { stages: 8, timeLimit: 180 } },
     91: { type: 'simon-says', config: { sequenceLength: 20, colors: 8, playbackSpeed: 250, replayAllowed: false, decoyFlash: true, speedUp: true } },
@@ -115,7 +115,7 @@ const LevelRegistry = {
     95: { type: 'math', config: { problems: 5, mode: 'number-theory', timeLimit: 50 } },
     96: { type: 'color-chain', config: { gridSize: 14, colors: 18, fillBoard: true, timeLimit: 120 } },
     97: { type: 'sorting', config: { count: 20, maxValue: 1000, mode: 'quantum', timeLimit: 50 } },
-    98: { type: 'word-scramble', config: { mode: 'polyglot', languages: 3, wordsPerLang: 2, timeLimit: 60 } },
+    98: { type: 'word-scramble', config: { mode: 'polyglot', timeLimit: 60 } },
     99: { type: 'multi-puzzle', config: { stages: 10, timeLimit: 200 } },
     100: { type: 'final-boss', config: { timeLimit: 480 } },
 };
@@ -13379,6 +13379,28 @@ class GameScene extends Phaser.Scene {
 
     createMultiWordScramblePuzzle(config) {
         const { width, height } = this.scale;
+        const { timeLimit } = config;
+
+        // Timer (if timeLimit > 0)
+        if (timeLimit && timeLimit > 0) {
+            let timeLeft = timeLimit;
+            const timerText = this.add.text(width / 2, height - 30, `Time: ${timeLeft}s`, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${timeLeft}s`);
+                    if (timeLeft <= 5) timerText.setColor('#ff4444');
+                    if (timeLeft <= 0) this.handleTimeUp();
+                },
+            });
+        }
 
         const wordPairs = [
             ['fire', 'cold'],
@@ -14262,6 +14284,28 @@ class GameScene extends Phaser.Scene {
 
     createCipherPuzzle(config) {
         const { width, height } = this.scale;
+        const { timeLimit } = config;
+
+        // Timer (if timeLimit > 0)
+        if (timeLimit && timeLimit > 0) {
+            let timeLeft = timeLimit;
+            const timerText = this.add.text(width / 2, height - 30, `Time: ${timeLeft}s`, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${timeLeft}s`);
+                    if (timeLeft <= 5) timerText.setColor('#ff4444');
+                    if (timeLeft <= 0) this.handleTimeUp();
+                },
+            });
+        }
 
         const phrases = [
             'THE GAME IS ALMOST DONE',
@@ -14557,6 +14601,28 @@ class GameScene extends Phaser.Scene {
 
     createCrosswordPuzzle(config) {
         const { width, height } = this.scale;
+        const { timeLimit } = config;
+
+        // Timer (if timeLimit > 0)
+        if (timeLimit && timeLimit > 0) {
+            let timeLeft = timeLimit;
+            const timerText = this.add.text(width / 2, height - 30, `Time: ${timeLeft}s`, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${timeLeft}s`);
+                    if (timeLeft <= 5) timerText.setColor('#ff4444');
+                    if (timeLeft <= 0) this.handleTimeUp();
+                },
+            });
+        }
 
         // Hardcoded crossword layouts: each has words with positions/directions and clues
         // Grid coordinates are (col, row), direction is 'across' or 'down'
@@ -15929,7 +15995,7 @@ class GameScene extends Phaser.Scene {
 
     createLightTogglePuzzle(config) {
         const { width, height } = this.scale;
-        const { size, lockedCells: numLocked, chainReaction } = config;
+        const { size, randomize, lockedCells: numLocked, chainReaction, timeLimit } = config;
 
         // Instructions
         this.add.text(width / 2, 70, 'Turn ALL lights ON!', {
@@ -15937,6 +16003,28 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Arial, sans-serif',
             color: '#aaaaaa',
         }).setOrigin(0.5);
+
+        // Timer (if timeLimit > 0)
+        let lightTimerEvent = null;
+        if (timeLimit && timeLimit > 0) {
+            let timeLeft = timeLimit;
+            const timerText = this.add.text(width / 2, height - 80, `Time: ${timeLeft}s`, {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            lightTimerEvent = this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    timerText.setText(`Time: ${timeLeft}s`);
+                    if (timeLeft <= 5) timerText.setColor('#ff4444');
+                    if (timeLeft <= 0) this.handleTimeUp();
+                },
+            });
+        }
 
         const instrDetail = chainReaction
             ? 'Toggles cascade! If a neighbor was ON before toggling, it cascades further.'
@@ -16131,6 +16219,7 @@ class GameScene extends Phaser.Scene {
                         // Check win
                         if (allOn()) {
                             solved = true;
+                            if (lightTimerEvent) lightTimerEvent.remove(false);
                             moveText.setText(`Solved in ${moves} moves!`).setColor('#44dd44');
                             this.time.delayedCall(800, () => {
                                 this.scene.start('LevelCompleteScene', { level: this.level });
