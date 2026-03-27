@@ -9,6 +9,7 @@ const LevelRegistry = {
     2: { type: 'memory-cards', config: { rows: 2, cols: 4, timeLimit: 0 } },
     3: { type: 'simon-says', config: { sequenceLength: 3, colors: 4, playbackSpeed: 800 } },
     4: { type: 'sorting', config: { count: 5, maxValue: 20 } },
+    5: { type: 'maze', config: { width: 7, height: 7, cellSize: 60 } },
 };
 
 // ============================================================
@@ -186,6 +187,8 @@ class GameScene extends Phaser.Scene {
             this.createSimonSaysPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'sorting') {
             this.createSortingPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'maze') {
+            this.createMazePuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -764,6 +767,104 @@ class GameScene extends Phaser.Scene {
         for (let i = 0; i < count; i++) {
             cards.push(createCard(i));
         }
+    }
+
+    createMazePuzzle(config) {
+        const { width, height } = this.scale;
+        const { width: mazeW, height: mazeH, cellSize } = config;
+
+        // 0 = path, 1 = wall
+        // Hardcoded 7x7 maze with wide corridors and a clear solution path
+        const maze = [
+            [0, 0, 0, 1, 0, 0, 0],
+            [1, 1, 0, 1, 0, 1, 0],
+            [0, 0, 0, 0, 0, 1, 0],
+            [0, 1, 1, 1, 0, 1, 0],
+            [0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 0, 1, 1, 1, 0],
+            [1, 1, 0, 0, 0, 0, 0],
+        ];
+
+        // Instructions
+        this.add.text(width / 2, 30, 'Use arrow keys to reach the star!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Move counter
+        let moveCount = 0;
+        const moveText = this.add.text(width / 2, height - 80, 'Moves: 0', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Calculate grid offset to center the maze
+        const gridW = mazeW * cellSize;
+        const gridH = mazeH * cellSize;
+        const offsetX = (width - gridW) / 2;
+        const offsetY = (height - gridH) / 2 + 10;
+
+        // Draw the maze
+        for (let row = 0; row < mazeH; row++) {
+            for (let col = 0; col < mazeW; col++) {
+                const x = offsetX + col * cellSize + cellSize / 2;
+                const y = offsetY + row * cellSize + cellSize / 2;
+                const isWall = maze[row][col] === 1;
+                this.add.rectangle(x, y, cellSize - 2, cellSize - 2, isWall ? 0x2a2a4a : 0x4a4a6a);
+            }
+        }
+
+        // Exit star at bottom-right (6,6)
+        const exitX = offsetX + 6 * cellSize + cellSize / 2;
+        const exitY = offsetY + 6 * cellSize + cellSize / 2;
+        const star = this.add.star(exitX, exitY, 5, 10, 22, 0xffdd44);
+
+        // Player circle at top-left (0,0)
+        let playerCol = 0;
+        let playerRow = 0;
+        const playerX = offsetX + playerCol * cellSize + cellSize / 2;
+        const playerY = offsetY + playerRow * cellSize + cellSize / 2;
+        const player = this.add.circle(playerX, playerY, cellSize / 3, 0x44dd44);
+
+        // Arrow key input
+        const cursors = this.input.keyboard.createCursorKeys();
+        let inputLocked = false;
+
+        const movePlayer = (dCol, dRow) => {
+            const newCol = playerCol + dCol;
+            const newRow = playerRow + dRow;
+
+            // Bounds check
+            if (newCol < 0 || newCol >= mazeW || newRow < 0 || newRow >= mazeH) return;
+            // Wall check
+            if (maze[newRow][newCol] === 1) return;
+
+            playerCol = newCol;
+            playerRow = newRow;
+            player.setPosition(
+                offsetX + playerCol * cellSize + cellSize / 2,
+                offsetY + playerRow * cellSize + cellSize / 2
+            );
+
+            moveCount++;
+            moveText.setText(`Moves: ${moveCount}`);
+
+            // Check win
+            if (playerCol === mazeW - 1 && playerRow === mazeH - 1) {
+                inputLocked = true;
+                player.setFillStyle(0xffdd44);
+                this.time.delayedCall(500, () => {
+                    this.scene.start('LevelCompleteScene', { level: this.level });
+                });
+            }
+        };
+
+        this.input.keyboard.on('keydown-LEFT', () => { if (!inputLocked) movePlayer(-1, 0); });
+        this.input.keyboard.on('keydown-RIGHT', () => { if (!inputLocked) movePlayer(1, 0); });
+        this.input.keyboard.on('keydown-UP', () => { if (!inputLocked) movePlayer(0, -1); });
+        this.input.keyboard.on('keydown-DOWN', () => { if (!inputLocked) movePlayer(0, 1); });
     }
 
     handleTimeUp() {
