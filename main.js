@@ -94,6 +94,7 @@ const LevelRegistry = {
     87: { type: 'math', config: { problems: 3, mode: 'matrix', timeLimit: 120 } },
     88: { type: 'word-scramble', config: { mode: 'cipher', cipherType: 'substitution', messageLength: 20 } },
     89: { type: 'jigsaw', config: { rows: 7, cols: 7, canRotate: true, timeLimit: 150 } },
+    90: { type: 'multi-puzzle', config: { stages: 8, timeLimit: 300 } },
 };
 
 // ============================================================
@@ -8271,9 +8272,1124 @@ class GameScene extends Phaser.Scene {
             this.input.keyboard.on('keydown-DOWN', () => { if (!inputLocked) movePlayer(0, 1); });
         };
 
+        // ---- Level 90 Stage 1: Simon Says (12-step) ----
+        const startL90Stage1 = () => {
+            const sequenceLength = 12;
+            const numColors = 4;
+            const playbackSpeed = 400;
+
+            const allColorDefs = [
+                { name: 'Red', hex: 0xff4444, dimHex: 0x882222 },
+                { name: 'Blue', hex: 0x4488ff, dimHex: 0x224488 },
+                { name: 'Green', hex: 0x44dd44, dimHex: 0x227722 },
+                { name: 'Yellow', hex: 0xffdd44, dimHex: 0x887722 },
+            ];
+
+            const colorDefs = allColorDefs.slice(0, numColors);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 1: Watch the sequence!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const progressText = this.add.text(width / 2, height - 80, '', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressText);
+
+            const ssCols = 2;
+            const ssRows = 2;
+            const btnSize = 120;
+            const gap = 20;
+            const gridW = ssCols * btnSize + (ssCols - 1) * gap;
+            const gridH = ssRows * btnSize + (ssRows - 1) * gap;
+            const gridStartX = width / 2 - gridW / 2 + btnSize / 2;
+            const gridStartY = height / 2 - gridH / 2 + btnSize / 2;
+
+            const buttons = colorDefs.map((colorDef, i) => {
+                const col = i % ssCols;
+                const row = Math.floor(i / ssCols);
+                const x = gridStartX + col * (btnSize + gap);
+                const y = gridStartY + row * (btnSize + gap);
+
+                const rect = this.add.rectangle(x, y, btnSize, btnSize, colorDef.dimHex)
+                    .setInteractive({ useHandCursor: true });
+                const label = this.add.text(x, y, colorDef.name, {
+                    fontSize: '18px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                stageElements.push(rect, label);
+
+                return { rect, colorDef };
+            });
+
+            const sequence = [];
+            for (let i = 0; i < sequenceLength; i++) {
+                sequence.push(Phaser.Math.Between(0, colorDefs.length - 1));
+            }
+
+            let playerIndex = 0;
+            let inputEnabled = false;
+
+            const lightUp = (btnIndex, duration) => {
+                const btn = buttons[btnIndex];
+                btn.rect.setFillStyle(btn.colorDef.hex);
+                this.time.delayedCall(duration * 0.6, () => {
+                    btn.rect.setFillStyle(btn.colorDef.dimHex);
+                });
+            };
+
+            const playSequence = () => {
+                inputEnabled = false;
+                playerIndex = 0;
+                instrText.setText('Stage 1: Watch the sequence!');
+                progressText.setText('');
+
+                sequence.forEach((btnIndex, i) => {
+                    this.time.delayedCall(playbackSpeed * (i + 1), () => {
+                        lightUp(btnIndex, playbackSpeed);
+                    });
+                });
+
+                this.time.delayedCall(playbackSpeed * (sequence.length + 1), () => {
+                    inputEnabled = true;
+                    instrText.setText('Stage 1: Your turn! Repeat the sequence.');
+                    progressText.setText(`0/${sequenceLength}`);
+                });
+            };
+
+            buttons.forEach((btn, btnIndex) => {
+                btn.rect.on('pointerdown', () => {
+                    if (!inputEnabled) return;
+
+                    btn.rect.setFillStyle(btn.colorDef.hex);
+                    this.time.delayedCall(200, () => {
+                        btn.rect.setFillStyle(btn.colorDef.dimHex);
+                    });
+
+                    if (sequence[playerIndex] === btnIndex) {
+                        playerIndex++;
+                        progressText.setText(`${playerIndex}/${sequenceLength}`);
+
+                        if (playerIndex >= sequenceLength) {
+                            inputEnabled = false;
+                            instrText.setText('Correct!');
+                            this.time.delayedCall(500, () => advanceStage());
+                        }
+                    } else {
+                        inputEnabled = false;
+                        instrText.setText('Wrong! Watch again...');
+                        progressText.setText('');
+                        this.time.delayedCall(1000, () => {
+                            playSequence();
+                        });
+                    }
+                });
+            });
+
+            playSequence();
+        };
+
+        // ---- Level 90 Stage 2: Light Toggle 5x5 ----
+        const startL90Stage2 = () => {
+            const size = 5;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 2: Turn off all the lights!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const grid = [];
+            for (let r = 0; r < size; r++) {
+                grid[r] = [];
+                for (let c = 0; c < size; c++) {
+                    grid[r][c] = false;
+                }
+            }
+
+            // Randomize by toggling random cells
+            const toggleCount = Phaser.Math.Between(8, 14);
+            for (let i = 0; i < toggleCount; i++) {
+                const tr = Phaser.Math.Between(0, size - 1);
+                const tc = Phaser.Math.Between(0, size - 1);
+                grid[tr][tc] = !grid[tr][tc];
+                if (tr > 0) grid[tr - 1][tc] = !grid[tr - 1][tc];
+                if (tr < size - 1) grid[tr + 1][tc] = !grid[tr + 1][tc];
+                if (tc > 0) grid[tr][tc - 1] = !grid[tr][tc - 1];
+                if (tc < size - 1) grid[tr][tc + 1] = !grid[tr][tc + 1];
+            }
+
+            // Ensure not already solved
+            let allOff = grid.every(row => row.every(cell => !cell));
+            if (allOff) {
+                const cr = Phaser.Math.Between(0, size - 1);
+                const cc = Phaser.Math.Between(0, size - 1);
+                grid[cr][cc] = !grid[cr][cc];
+                if (cr > 0) grid[cr - 1][cc] = !grid[cr - 1][cc];
+                if (cr < size - 1) grid[cr + 1][cc] = !grid[cr + 1][cc];
+                if (cc > 0) grid[cr][cc - 1] = !grid[cr][cc - 1];
+                if (cc < size - 1) grid[cr][cc + 1] = !grid[cr][cc + 1];
+            }
+
+            const cellSize = 70;
+            const ltGap = 6;
+            const totalW = size * cellSize + (size - 1) * ltGap;
+            const totalH = size * cellSize + (size - 1) * ltGap;
+            const gridStartX = (width - totalW) / 2 + cellSize / 2;
+            const gridStartY = (height - totalH) / 2 + cellSize / 2;
+
+            let cells = [];
+
+            const renderGrid = () => {
+                cells.forEach(c => {
+                    c.bg.destroy();
+                    stageElements = stageElements.filter(e => e !== c.bg);
+                });
+                cells = [];
+
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const x = gridStartX + c * (cellSize + ltGap);
+                        const y = gridStartY + r * (cellSize + ltGap);
+                        const isOn = grid[r][c];
+                        const bg = this.add.rectangle(x, y, cellSize, cellSize, isOn ? 0xffdd44 : 0x2a2a4a)
+                            .setInteractive({ useHandCursor: true });
+                        stageElements.push(bg);
+                        cells.push({ bg });
+
+                        bg.on('pointerdown', () => {
+                            grid[r][c] = !grid[r][c];
+                            if (r > 0) grid[r - 1][c] = !grid[r - 1][c];
+                            if (r < size - 1) grid[r + 1][c] = !grid[r + 1][c];
+                            if (c > 0) grid[r][c - 1] = !grid[r][c - 1];
+                            if (c < size - 1) grid[r][c + 1] = !grid[r][c + 1];
+                            renderGrid();
+
+                            const solved = grid.every(row => row.every(cell => !cell));
+                            if (solved) {
+                                this.time.delayedCall(500, () => advanceStage());
+                            }
+                        });
+                    }
+                }
+            };
+
+            renderGrid();
+        };
+
+        // ---- Level 90 Stage 3: 7x6 Memory Cards (21 pairs) ----
+        const startL90Stage3 = () => {
+            const rows = 6, cols = 7;
+            const totalCards = rows * cols;
+            const numPairs = totalCards / 2;
+
+            const cardColors = [
+                { name: 'Red', hex: 0xff4444 },
+                { name: 'Blue', hex: 0x4488ff },
+                { name: 'Green', hex: 0x44dd44 },
+                { name: 'Purple', hex: 0xaa44ff },
+                { name: 'Orange', hex: 0xff8844 },
+                { name: 'Cyan', hex: 0x44dddd },
+                { name: 'Yellow', hex: 0xffdd44 },
+                { name: 'Pink', hex: 0xff44aa },
+                { name: 'Lime', hex: 0xaaff44 },
+                { name: 'Coral', hex: 0xff6666 },
+                { name: 'Teal', hex: 0x44aaaa },
+                { name: 'Gold', hex: 0xddaa44 },
+                { name: 'Violet', hex: 0x8844dd },
+                { name: 'Mint', hex: 0x44ffaa },
+                { name: 'Rose', hex: 0xff88aa },
+                { name: 'Sky', hex: 0x88bbff },
+                { name: 'Peach', hex: 0xffbb88 },
+                { name: 'Plum', hex: 0xaa44aa },
+                { name: 'Slate', hex: 0x8899aa },
+                { name: 'Olive', hex: 0x88aa44 },
+                { name: 'Aqua', hex: 0x44ffdd },
+            ];
+
+            // 42 cards = 21 pairs, but we have an odd grid (7x6=42), so it works
+            const cardData = [];
+            for (let i = 0; i < numPairs; i++) {
+                cardData.push(cardColors[i % cardColors.length], cardColors[i % cardColors.length]);
+            }
+            Phaser.Utils.Array.Shuffle(cardData);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 3: Find all matching pairs!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const padding = 8;
+            const availW = width - 40;
+            const availH = height - 180;
+            const cardW = Math.min(80, Math.floor((availW - (cols - 1) * padding) / cols));
+            const cardH = Math.min(80, Math.floor((availH - (rows - 1) * padding) / rows));
+            const gridW = cols * (cardW + padding) - padding;
+            const gridH = rows * (cardH + padding) - padding;
+            const startX = (width - gridW) / 2 + cardW / 2;
+            const startY = (height - gridH) / 2 + 10;
+
+            let firstCard = null;
+            let secondCard = null;
+            let lockBoard = false;
+            let matchesFound = 0;
+
+            for (let i = 0; i < totalCards; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = startX + col * (cardW + padding);
+                const y = startY + row * (cardH + padding);
+                const color = cardData[i];
+
+                const back = this.add.rectangle(x, y, cardW, cardH, 0x3a3a6a)
+                    .setInteractive({ useHandCursor: true });
+                const qmFontSize = Math.min(28, Math.floor(cardH * 0.3));
+                const questionMark = this.add.text(x, y, '?', {
+                    fontSize: `${qmFontSize}px`,
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#888888',
+                }).setOrigin(0.5);
+
+                const face = this.add.rectangle(x, y, cardW, cardH, color.hex).setVisible(false);
+                const lblFontSize = Math.min(12, Math.floor(cardW * 0.14));
+                const colorLabel = this.add.text(x, y, color.name, {
+                    fontSize: `${lblFontSize}px`,
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5).setVisible(false);
+
+                stageElements.push(back, questionMark, face, colorLabel);
+
+                const card = { back, questionMark, face, colorLabel, colorName: color.name, flipped: false, matched: false };
+
+                back.on('pointerover', () => { if (!card.flipped && !card.matched) back.setFillStyle(0x5a5a9a); });
+                back.on('pointerout', () => { if (!card.flipped && !card.matched) back.setFillStyle(0x3a3a6a); });
+
+                back.on('pointerdown', () => {
+                    if (lockBoard || card.flipped || card.matched) return;
+
+                    card.flipped = true;
+                    back.setVisible(false);
+                    questionMark.setVisible(false);
+                    face.setVisible(true);
+                    colorLabel.setVisible(true);
+
+                    if (!firstCard) {
+                        firstCard = card;
+                    } else {
+                        secondCard = card;
+                        lockBoard = true;
+
+                        if (firstCard.colorName === secondCard.colorName) {
+                            firstCard.matched = true;
+                            secondCard.matched = true;
+                            firstCard.face.setAlpha(0.6);
+                            secondCard.face.setAlpha(0.6);
+                            firstCard.colorLabel.setAlpha(0.6);
+                            secondCard.colorLabel.setAlpha(0.6);
+                            firstCard = null;
+                            secondCard = null;
+                            lockBoard = false;
+                            matchesFound++;
+
+                            if (matchesFound >= numPairs) {
+                                this.time.delayedCall(500, () => advanceStage());
+                            }
+                        } else {
+                            const fc = firstCard;
+                            const sc = secondCard;
+                            this.time.delayedCall(800, () => {
+                                fc.flipped = false;
+                                fc.back.setVisible(true);
+                                fc.questionMark.setVisible(true);
+                                fc.face.setVisible(false);
+                                fc.colorLabel.setVisible(false);
+                                sc.flipped = false;
+                                sc.back.setVisible(true);
+                                sc.questionMark.setVisible(true);
+                                sc.face.setVisible(false);
+                                sc.colorLabel.setVisible(false);
+                                firstCard = null;
+                                secondCard = null;
+                                lockBoard = false;
+                            });
+                        }
+                    }
+                });
+            }
+        };
+
+        // ---- Level 90 Stage 4: Sliding Puzzle (4x4) ----
+        const startL90Stage4 = () => {
+            const size = 4;
+            const tileSize = 80;
+            const tileGap = 4;
+            const totalSize = size * tileSize + (size - 1) * tileGap;
+            const puzzleStartX = (width - totalSize) / 2 + tileSize / 2;
+            const puzzleStartY = (height - totalSize) / 2 + tileSize / 2 - 10;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 4: Solve the sliding puzzle!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const board = [];
+            for (let r = 0; r < size; r++) {
+                board[r] = [];
+                for (let c = 0; c < size; c++) {
+                    const val = r * size + c + 1;
+                    board[r][c] = val === size * size ? 0 : val;
+                }
+            }
+
+            let emptyR = size - 1;
+            let emptyC = size - 1;
+
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            for (let i = 0; i < 300; i++) {
+                const validMoves = [];
+                for (const [dr, dc] of dirs) {
+                    const nr = emptyR + dr;
+                    const nc = emptyC + dc;
+                    if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
+                        validMoves.push([nr, nc]);
+                    }
+                }
+                const [mr, mc] = validMoves[Math.floor(Math.random() * validMoves.length)];
+                board[emptyR][emptyC] = board[mr][mc];
+                board[mr][mc] = 0;
+                emptyR = mr;
+                emptyC = mc;
+            }
+
+            let moveCount = 0;
+            const moveText = this.add.text(width / 2, height - 80, 'Moves: 0', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(moveText);
+
+            let tiles = [];
+
+            const renderBoard = () => {
+                tiles.forEach(t => {
+                    if (t.bg) t.bg.destroy();
+                    if (t.label) t.label.destroy();
+                    stageElements = stageElements.filter(e => e !== t.bg && e !== t.label);
+                });
+                tiles = [];
+
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const val = board[r][c];
+                        if (val === 0) continue;
+
+                        const x = puzzleStartX + c * (tileSize + tileGap);
+                        const y = puzzleStartY + r * (tileSize + tileGap);
+
+                        const bg = this.add.rectangle(x, y, tileSize, tileSize, 0x4a6a9a)
+                            .setInteractive({ useHandCursor: true });
+                        const label = this.add.text(x, y, `${val}`, {
+                            fontSize: '32px',
+                            fontFamily: 'Arial, sans-serif',
+                            fontStyle: 'bold',
+                            color: '#ffffff',
+                        }).setOrigin(0.5);
+                        stageElements.push(bg, label);
+
+                        bg.on('pointerdown', () => {
+                            const dr = Math.abs(r - emptyR);
+                            const dc = Math.abs(c - emptyC);
+                            if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                                board[emptyR][emptyC] = board[r][c];
+                                board[r][c] = 0;
+                                emptyR = r;
+                                emptyC = c;
+                                moveCount++;
+                                moveText.setText(`Moves: ${moveCount}`);
+                                renderBoard();
+
+                                if (this.checkSlidingPuzzleSolved(board, size)) {
+                                    this.time.delayedCall(300, () => advanceStage());
+                                }
+                            }
+                        });
+
+                        bg.on('pointerover', () => {
+                            const dr = Math.abs(r - emptyR);
+                            const dc = Math.abs(c - emptyC);
+                            if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                                bg.setFillStyle(0x6a8aba);
+                            }
+                        });
+                        bg.on('pointerout', () => bg.setFillStyle(0x4a6a9a));
+
+                        tiles.push({ bg, label });
+                    }
+                }
+            };
+
+            renderBoard();
+        };
+
+        // ---- Level 90 Stage 5: 6 Algebra Problems ----
+        const startL90Stage5 = () => {
+            const problems = 6;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 5: Solve for x!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            let currentProblem = 0;
+
+            const progressText = this.add.text(width / 2, height - 80, `Problem 1/${problems}`, {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressText);
+
+            let problemText = null;
+            let choiceButtons = [];
+            let feedbackText = null;
+
+            const showProblem = () => {
+                if (problemText) { problemText.destroy(); stageElements = stageElements.filter(e => e !== problemText); }
+                choiceButtons.forEach(b => { b.bg.destroy(); b.text.destroy(); stageElements = stageElements.filter(e => e !== b.bg && e !== b.text); });
+                choiceButtons = [];
+                if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); feedbackText = null; }
+
+                progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+                // Generate algebra problem: ax + b = c, solve for x
+                const a = Phaser.Math.Between(2, 8);
+                const x = Phaser.Math.Between(1, 15);
+                const b = Phaser.Math.Between(-10, 20);
+                const c = a * x + b;
+                const answer = x;
+
+                const bSign = b >= 0 ? '+' : '-';
+                const bAbs = Math.abs(b);
+                const questionStr = `${a}x ${bSign} ${bAbs} = ${c}`;
+
+                problemText = this.add.text(width / 2, height / 2 - 80, `${questionStr}\nx = ?`, {
+                    fontSize: '40px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                    align: 'center',
+                }).setOrigin(0.5);
+                stageElements.push(problemText);
+
+                const wrongSet = new Set();
+                while (wrongSet.size < 3) {
+                    const offset = Phaser.Math.Between(-5, 5);
+                    const wrong = answer + offset;
+                    if (wrong !== answer && wrong > 0) {
+                        wrongSet.add(wrong);
+                    }
+                }
+
+                const choices = Phaser.Utils.Array.Shuffle([answer, ...wrongSet]);
+                const btnWidth = 120;
+                const btnSpacing = 140;
+                const bStartX = width / 2 - (btnSpacing * 1.5);
+                const btnY = height / 2 + 60;
+
+                choices.forEach((choice, i) => {
+                    const bx = bStartX + i * btnSpacing;
+                    const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(bx, btnY, `${choice}`, {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    stageElements.push(bg, txt);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                    bg.on('pointerdown', () => {
+                        if (choice === answer) {
+                            bg.setFillStyle(0x44dd44);
+                            choiceButtons.forEach(b => b.bg.disableInteractive());
+
+                            if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); }
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#44dd44',
+                            }).setOrigin(0.5);
+                            stageElements.push(feedbackText);
+
+                            currentProblem++;
+                            if (currentProblem >= problems) {
+                                this.time.delayedCall(800, () => advanceStage());
+                            } else {
+                                this.time.delayedCall(800, () => showProblem());
+                            }
+                        } else {
+                            bg.setFillStyle(0xff4444);
+                            bg.disableInteractive();
+                            if (feedbackText) { feedbackText.destroy(); stageElements = stageElements.filter(e => e !== feedbackText); }
+                            feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                                fontSize: '24px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#ff4444',
+                            }).setOrigin(0.5);
+                            stageElements.push(feedbackText);
+                        }
+                    });
+
+                    choiceButtons.push({ bg, text: txt });
+                });
+            };
+
+            showProblem();
+        };
+
+        // ---- Level 90 Stage 6: Tower of Hanoi (5 discs) ----
+        const startL90Stage6 = () => {
+            const numDiscs = 5;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 6: Move all discs to the right peg!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const pegs = [[], [], []];
+            for (let i = numDiscs; i >= 1; i--) {
+                pegs[0].push(i);
+            }
+
+            let moveCount = 0;
+            const moveText = this.add.text(width / 2, height - 80, 'Moves: 0', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(moveText);
+
+            const pegX = [width / 2 - 180, width / 2, width / 2 + 180];
+            const baseY = height / 2 + 100;
+            const pegHeight = 160;
+            const discMaxWidth = 120;
+            const discHeight = 24;
+            const discColors = [0xff4444, 0x4488ff, 0x44dd44, 0xffdd44, 0xaa44ff];
+
+            let selectedPeg = null;
+            let discElements = [];
+            let pegElements = [];
+            let selectedHighlight = null;
+
+            const renderHanoi = () => {
+                discElements.forEach(el => { el.destroy(); stageElements = stageElements.filter(e => e !== el); });
+                discElements = [];
+                pegElements.forEach(el => { el.destroy(); stageElements = stageElements.filter(e => e !== el); });
+                pegElements = [];
+                if (selectedHighlight) { selectedHighlight.destroy(); stageElements = stageElements.filter(e => e !== selectedHighlight); selectedHighlight = null; }
+
+                // Draw pegs
+                for (let p = 0; p < 3; p++) {
+                    const pegBase = this.add.rectangle(pegX[p], baseY, 140, 8, 0x888888);
+                    const pegPole = this.add.rectangle(pegX[p], baseY - pegHeight / 2, 8, pegHeight, 0x666666);
+                    stageElements.push(pegBase, pegPole);
+                    pegElements.push(pegBase, pegPole);
+
+                    // Clickable area for each peg
+                    const clickArea = this.add.rectangle(pegX[p], baseY - pegHeight / 2, 160, pegHeight + 20, 0x000000, 0)
+                        .setInteractive({ useHandCursor: true });
+                    stageElements.push(clickArea);
+                    pegElements.push(clickArea);
+
+                    clickArea.on('pointerdown', () => {
+                        if (selectedPeg === null) {
+                            if (pegs[p].length > 0) {
+                                selectedPeg = p;
+                                renderHanoi();
+                            }
+                        } else {
+                            if (p !== selectedPeg) {
+                                const fromDisc = pegs[selectedPeg][pegs[selectedPeg].length - 1];
+                                const toDisc = pegs[p].length > 0 ? pegs[p][pegs[p].length - 1] : Infinity;
+                                if (fromDisc < toDisc) {
+                                    pegs[p].push(pegs[selectedPeg].pop());
+                                    moveCount++;
+                                    moveText.setText(`Moves: ${moveCount}`);
+                                }
+                            }
+                            selectedPeg = null;
+                            renderHanoi();
+
+                            // Check win
+                            if (pegs[2].length === numDiscs) {
+                                this.time.delayedCall(500, () => advanceStage());
+                            }
+                        }
+                    });
+                }
+
+                // Draw discs
+                for (let p = 0; p < 3; p++) {
+                    pegs[p].forEach((disc, idx) => {
+                        const discWidth = 30 + (disc / numDiscs) * (discMaxWidth - 30);
+                        const dx = pegX[p];
+                        const dy = baseY - 8 - idx * (discHeight + 2) - discHeight / 2;
+                        const discRect = this.add.rectangle(dx, dy, discWidth, discHeight, discColors[(disc - 1) % discColors.length])
+                            .setStrokeStyle(1, 0xffffff, 0.3);
+                        stageElements.push(discRect);
+                        discElements.push(discRect);
+                    });
+                }
+
+                // Highlight selected peg
+                if (selectedPeg !== null) {
+                    selectedHighlight = this.add.rectangle(pegX[selectedPeg], baseY - pegHeight / 2, 160, pegHeight + 20, 0xffdd44, 0.15);
+                    stageElements.push(selectedHighlight);
+                }
+            };
+
+            renderHanoi();
+        };
+
+        // ---- Level 90 Stage 7: Word Scramble Crossword (3 words) ----
+        const startL90Stage7 = () => {
+            const words = ['castle', 'bridge', 'forest'];
+            const scrambledWords = words.map(w => {
+                let scrambled = w.split('');
+                let attempts = 0;
+                do {
+                    scrambled = Phaser.Utils.Array.Shuffle([...w.split('')]);
+                    attempts++;
+                } while (scrambled.join('') === w && attempts < 20);
+                return scrambled.join('');
+            });
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 7: Unscramble all 3 words!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            let currentWordIdx = 0;
+            let currentGuess = '';
+            let wordElements = [];
+
+            const wordProgressText = this.add.text(width / 2, 100, `Word 1/${words.length}`, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(wordProgressText);
+
+            let scrambleDisplay = null;
+            let guessDisplay = null;
+            let feedbackDisplay = null;
+
+            const showWord = () => {
+                wordElements.forEach(el => { el.destroy(); stageElements = stageElements.filter(e => e !== el); });
+                wordElements = [];
+                if (scrambleDisplay) { scrambleDisplay.destroy(); stageElements = stageElements.filter(e => e !== scrambleDisplay); }
+                if (guessDisplay) { guessDisplay.destroy(); stageElements = stageElements.filter(e => e !== guessDisplay); }
+                if (feedbackDisplay) { feedbackDisplay.destroy(); stageElements = stageElements.filter(e => e !== feedbackDisplay); }
+
+                currentGuess = '';
+                wordProgressText.setText(`Word ${currentWordIdx + 1}/${words.length}`);
+
+                const scrambled = scrambledWords[currentWordIdx];
+                const letterSize = 50;
+                const letterGap = 10;
+                const totalW = scrambled.length * letterSize + (scrambled.length - 1) * letterGap;
+                const letStartX = width / 2 - totalW / 2 + letterSize / 2;
+                const letY = height / 2 - 80;
+
+                scrambled.split('').forEach((letter, i) => {
+                    const x = letStartX + i * (letterSize + letterGap);
+                    const bg = this.add.rectangle(x, letY, letterSize, letterSize, 0x4a4a8a);
+                    const txt = this.add.text(x, letY, letter.toUpperCase(), {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        fontStyle: 'bold',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    stageElements.push(bg, txt);
+                    wordElements.push(bg, txt);
+                });
+
+                const targetWord = words[currentWordIdx];
+                guessDisplay = this.add.text(width / 2, height / 2 + 10, '_ '.repeat(targetWord.length).trim(), {
+                    fontSize: '36px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                    letterSpacing: 8,
+                }).setOrigin(0.5);
+                stageElements.push(guessDisplay);
+
+                feedbackDisplay = this.add.text(width / 2, height / 2 + 60, '', {
+                    fontSize: '20px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ff4444',
+                }).setOrigin(0.5);
+                stageElements.push(feedbackDisplay);
+            };
+
+            const updateGuessDisplay = () => {
+                const targetWord = words[currentWordIdx];
+                const display = [];
+                for (let i = 0; i < targetWord.length; i++) {
+                    display.push(i < currentGuess.length ? currentGuess[i].toUpperCase() : '_');
+                }
+                guessDisplay.setText(display.join(' '));
+            };
+
+            // Keyboard input
+            this.input.keyboard.on('keydown', (event) => {
+                const key = event.key.toLowerCase();
+                const targetWord = words[currentWordIdx];
+                if (key === 'backspace') {
+                    currentGuess = currentGuess.slice(0, -1);
+                    feedbackDisplay.setText('');
+                    updateGuessDisplay();
+                } else if (key === 'enter') {
+                    if (currentGuess.length === targetWord.length) {
+                        if (currentGuess === targetWord) {
+                            feedbackDisplay.setColor('#44dd44');
+                            feedbackDisplay.setText('Correct!');
+                            currentWordIdx++;
+                            if (currentWordIdx >= words.length) {
+                                this.time.delayedCall(500, () => advanceStage());
+                            } else {
+                                this.time.delayedCall(500, () => showWord());
+                            }
+                        } else {
+                            feedbackDisplay.setColor('#ff4444');
+                            feedbackDisplay.setText('Wrong! Try again.');
+                            currentGuess = '';
+                            updateGuessDisplay();
+                        }
+                    }
+                } else if (/^[a-z]$/.test(key) && currentGuess.length < targetWord.length) {
+                    currentGuess += key;
+                    updateGuessDisplay();
+                }
+            });
+
+            // On-screen keyboard for touch support
+            const kbKeys = 'qwertyuiopasdfghjklzxcvbnm'.split('');
+            const kbRows = [
+                kbKeys.slice(0, 10),
+                kbKeys.slice(10, 19),
+                kbKeys.slice(19, 26),
+            ];
+            const kbKeySize = 32;
+            const kbGap = 4;
+            const kbStartY = height / 2 + 100;
+
+            kbRows.forEach((row, ri) => {
+                const rowW = row.length * kbKeySize + (row.length - 1) * kbGap;
+                const rowStartX = width / 2 - rowW / 2 + kbKeySize / 2;
+                const ry = kbStartY + ri * (kbKeySize + kbGap);
+
+                row.forEach((k, ki) => {
+                    const kx = rowStartX + ki * (kbKeySize + kbGap);
+                    const kbg = this.add.rectangle(kx, ry, kbKeySize, kbKeySize, 0x3a3a6a)
+                        .setInteractive({ useHandCursor: true });
+                    const ktxt = this.add.text(kx, ry, k.toUpperCase(), {
+                        fontSize: '16px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    stageElements.push(kbg, ktxt);
+
+                    kbg.on('pointerover', () => kbg.setFillStyle(0x5a5a8a));
+                    kbg.on('pointerout', () => kbg.setFillStyle(0x3a3a6a));
+                    kbg.on('pointerdown', () => {
+                        const targetWord = words[currentWordIdx];
+                        if (currentGuess.length < targetWord.length) {
+                            currentGuess += k;
+                            updateGuessDisplay();
+                        }
+                    });
+                });
+            });
+
+            // Backspace and Enter buttons
+            const actionY = kbStartY + 3 * (kbKeySize + kbGap);
+            const delBg = this.add.rectangle(width / 2 - 70, actionY, 100, 36, 0x5a3a3a)
+                .setInteractive({ useHandCursor: true });
+            const delTxt = this.add.text(width / 2 - 70, actionY, 'DELETE', {
+                fontSize: '14px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(delBg, delTxt);
+            delBg.on('pointerover', () => delBg.setFillStyle(0x7a5a5a));
+            delBg.on('pointerout', () => delBg.setFillStyle(0x5a3a3a));
+            delBg.on('pointerdown', () => {
+                currentGuess = currentGuess.slice(0, -1);
+                feedbackDisplay.setText('');
+                updateGuessDisplay();
+            });
+
+            const enterBg = this.add.rectangle(width / 2 + 70, actionY, 100, 36, 0x3a5a3a)
+                .setInteractive({ useHandCursor: true });
+            const enterTxt = this.add.text(width / 2 + 70, actionY, 'ENTER', {
+                fontSize: '14px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(enterBg, enterTxt);
+            enterBg.on('pointerover', () => enterBg.setFillStyle(0x5a7a5a));
+            enterBg.on('pointerout', () => enterBg.setFillStyle(0x3a5a3a));
+            enterBg.on('pointerdown', () => {
+                const targetWord = words[currentWordIdx];
+                if (currentGuess.length === targetWord.length) {
+                    if (currentGuess === targetWord) {
+                        feedbackDisplay.setColor('#44dd44');
+                        feedbackDisplay.setText('Correct!');
+                        currentWordIdx++;
+                        if (currentWordIdx >= words.length) {
+                            this.time.delayedCall(500, () => advanceStage());
+                        } else {
+                            this.time.delayedCall(500, () => showWord());
+                        }
+                    } else {
+                        feedbackDisplay.setColor('#ff4444');
+                        feedbackDisplay.setText('Wrong! Try again.');
+                        currentGuess = '';
+                        updateGuessDisplay();
+                    }
+                }
+            });
+
+            showWord();
+        };
+
+        // ---- Level 90 Stage 8: 19x19 Maze with fog + enemies ----
+        const startL90Stage8 = () => {
+            const mazeW = 19, mazeH = 19, cellSize = 24;
+            const viewRadius = 3;
+            const numEnemies = 4;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 8: Escape the foggy maze! Avoid enemies!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            // Generate maze using recursive backtracker
+            const maze = Array.from({ length: mazeH }, () => Array(mazeW).fill(1));
+
+            const carveMaze = (r, c) => {
+                maze[r][c] = 0;
+                const dirs = [[0, 2], [0, -2], [2, 0], [-2, 0]];
+                for (let i = dirs.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+                }
+                for (const [dr, dc] of dirs) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 1) {
+                        maze[r + dr / 2][c + dc / 2] = 0;
+                        carveMaze(nr, nc);
+                    }
+                }
+            };
+            carveMaze(0, 0);
+            maze[mazeH - 1][mazeW - 1] = 0;
+
+            // Place enemies on open cells away from start
+            const enemies = [];
+            const openCells = [];
+            for (let r = 0; r < mazeH; r++) {
+                for (let c = 0; c < mazeW; c++) {
+                    if (maze[r][c] === 0 && (r + c) > 4) {
+                        openCells.push({ r, c });
+                    }
+                }
+            }
+            Phaser.Utils.Array.Shuffle(openCells);
+            for (let i = 0; i < numEnemies && i < openCells.length; i++) {
+                enemies.push({ row: openCells[i].r, col: openCells[i].c });
+            }
+
+            const gridW = mazeW * cellSize;
+            const gridH = mazeH * cellSize;
+            const offsetX = (width - gridW) / 2;
+            const offsetY = (height - gridH) / 2 + 10;
+
+            let cellElements = [];
+            let fogElements = [];
+            let enemyElements = [];
+
+            // Player
+            let playerCol = 0;
+            let playerRow = 0;
+            let player = null;
+            let starEl = null;
+
+            const renderMaze = () => {
+                cellElements.forEach(el => { el.destroy(); stageElements = stageElements.filter(e => e !== el); });
+                cellElements = [];
+                fogElements.forEach(el => { el.destroy(); stageElements = stageElements.filter(e => e !== el); });
+                fogElements = [];
+                enemyElements.forEach(el => { el.destroy(); stageElements = stageElements.filter(e => e !== el); });
+                enemyElements = [];
+                if (player) { player.destroy(); stageElements = stageElements.filter(e => e !== player); }
+                if (starEl) { starEl.destroy(); stageElements = stageElements.filter(e => e !== starEl); }
+
+                // Draw maze cells
+                for (let row = 0; row < mazeH; row++) {
+                    for (let col = 0; col < mazeW; col++) {
+                        const x = offsetX + col * cellSize + cellSize / 2;
+                        const y = offsetY + row * cellSize + cellSize / 2;
+
+                        const dist = Math.abs(row - playerRow) + Math.abs(col - playerCol);
+                        const visible = dist <= viewRadius;
+
+                        if (visible) {
+                            if (maze[row][col] === 1) {
+                                const wall = this.add.rectangle(x, y, cellSize - 1, cellSize - 1, 0x2a2a4a);
+                                stageElements.push(wall);
+                                cellElements.push(wall);
+                            } else {
+                                const path = this.add.rectangle(x, y, cellSize - 1, cellSize - 1, 0x4a4a6a);
+                                stageElements.push(path);
+                                cellElements.push(path);
+                            }
+                        } else {
+                            const fog = this.add.rectangle(x, y, cellSize - 1, cellSize - 1, 0x111122);
+                            stageElements.push(fog);
+                            fogElements.push(fog);
+                        }
+                    }
+                }
+
+                // Draw enemies (only visible ones)
+                enemies.forEach(enemy => {
+                    const dist = Math.abs(enemy.row - playerRow) + Math.abs(enemy.col - playerCol);
+                    if (dist <= viewRadius) {
+                        const ex = offsetX + enemy.col * cellSize + cellSize / 2;
+                        const ey = offsetY + enemy.row * cellSize + cellSize / 2;
+                        const enemyEl = this.add.circle(ex, ey, cellSize / 3, 0xff4444);
+                        stageElements.push(enemyEl);
+                        enemyElements.push(enemyEl);
+                    }
+                });
+
+                // Exit star (only if visible)
+                const exitDist = Math.abs((mazeH - 1) - playerRow) + Math.abs((mazeW - 1) - playerCol);
+                if (exitDist <= viewRadius) {
+                    const exitX = offsetX + (mazeW - 1) * cellSize + cellSize / 2;
+                    const exitY = offsetY + (mazeH - 1) * cellSize + cellSize / 2;
+                    starEl = this.add.star(exitX, exitY, 5, 5, 12, 0xffdd44);
+                    stageElements.push(starEl);
+                }
+
+                // Player
+                player = this.add.circle(
+                    offsetX + playerCol * cellSize + cellSize / 2,
+                    offsetY + playerRow * cellSize + cellSize / 2,
+                    cellSize / 3, 0x44dd44
+                );
+                stageElements.push(player);
+            };
+
+            renderMaze();
+
+            let inputLocked = false;
+
+            const checkEnemyCollision = () => {
+                for (const enemy of enemies) {
+                    if (enemy.row === playerRow && enemy.col === playerCol) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            const moveEnemies = () => {
+                enemies.forEach(enemy => {
+                    const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+                    Phaser.Utils.Array.Shuffle(dirs);
+                    for (const [dr, dc] of dirs) {
+                        const nr = enemy.row + dr;
+                        const nc = enemy.col + dc;
+                        if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0) {
+                            enemy.row = nr;
+                            enemy.col = nc;
+                            break;
+                        }
+                    }
+                });
+            };
+
+            const movePlayer = (dCol, dRow) => {
+                const newCol = playerCol + dCol;
+                const newRow = playerRow + dRow;
+                if (newCol < 0 || newCol >= mazeW || newRow < 0 || newRow >= mazeH) return;
+                if (maze[newRow][newCol] === 1) return;
+
+                playerCol = newCol;
+                playerRow = newRow;
+
+                // Move enemies every player step
+                moveEnemies();
+
+                renderMaze();
+
+                if (checkEnemyCollision()) {
+                    inputLocked = true;
+                    // Reset to start
+                    instrText.setText('Caught by enemy! Restarting...');
+                    this.time.delayedCall(1000, () => {
+                        playerCol = 0;
+                        playerRow = 0;
+                        inputLocked = false;
+                        instrText.setText('Stage 8: Escape the foggy maze! Avoid enemies!');
+                        renderMaze();
+                    });
+                    return;
+                }
+
+                if (playerCol === mazeW - 1 && playerRow === mazeH - 1) {
+                    inputLocked = true;
+                    player.setFillStyle(0xffdd44);
+                    this.time.delayedCall(500, () => advanceStage());
+                }
+            };
+
+            this.input.keyboard.on('keydown-LEFT', () => { if (!inputLocked) movePlayer(-1, 0); });
+            this.input.keyboard.on('keydown-RIGHT', () => { if (!inputLocked) movePlayer(1, 0); });
+            this.input.keyboard.on('keydown-UP', () => { if (!inputLocked) movePlayer(0, -1); });
+            this.input.keyboard.on('keydown-DOWN', () => { if (!inputLocked) movePlayer(0, 1); });
+        };
+
         // Build stage functions array based on level
         let stageFunctions;
-        if (this.level === 80) {
+        if (this.level === 90) {
+            stageFunctions = [startL90Stage1, startL90Stage2, startL90Stage3, startL90Stage4, startL90Stage5, startL90Stage6, startL90Stage7, startL90Stage8];
+        } else if (this.level === 80) {
             stageFunctions = [startL80Stage1, startL80Stage2, startL80Stage3, startL80Stage4, startL80Stage5, startL80Stage6];
         } else if (this.level === 70) {
             stageFunctions = [startL70Stage1, startL70Stage2, startL70Stage3, startL70Stage4, startL70Stage5];
