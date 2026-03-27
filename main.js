@@ -59,6 +59,7 @@ const LevelRegistry = {
     52: { type: 'maze', config: { width: 25, height: 25, cellSize: 22, fogOfWar: true, viewRadius: 2, enemies: 4, traps: 5 } },
     53: { type: 'simon-says', config: { sequenceLength: 12, colors: 8, playbackSpeed: 350, replayAllowed: false } },
     54: { type: 'sliding-puzzle', config: { size: 5 } },
+    55: { type: 'math', config: { problems: 5, mode: 'chain', timeLimit: 60 } },
 };
 
 // ============================================================
@@ -2407,6 +2408,10 @@ class GameScene extends Phaser.Scene {
             return this.createAlgebraPuzzle(config);
         }
 
+        if (config.mode === 'chain') {
+            return this.createChainMathPuzzle(config);
+        }
+
         const { problems, operations, maxNum, timeLimit } = config;
 
         // Instructions
@@ -3115,6 +3120,266 @@ class GameScene extends Phaser.Scene {
                     updateInputDisplay();
                     updateSelection();
                 }
+            });
+        };
+
+        showProblem();
+    }
+
+    createChainMathPuzzle(config) {
+        const { width, height } = this.scale;
+        const { problems, timeLimit } = config;
+
+        this.add.text(width / 2, 70, 'Find the starting number! (PEMDAS applies)', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Timer
+        let timeLeft = timeLimit;
+        const timerText = this.add.text(width / 2 + 200, height - 80, `Time: ${timeLeft}s`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        const timerEvent = this.time.addEvent({
+            delay: 1000,
+            repeat: timeLimit - 1,
+            callback: () => {
+                timeLeft--;
+                timerText.setText(`Time: ${timeLeft}s`);
+                if (timeLeft <= 5) {
+                    timerText.setColor('#ff4444');
+                }
+                if (timeLeft <= 0) {
+                    this.mathCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.mathCleanup = () => {
+            timerEvent.remove(false);
+        };
+
+        let currentProblem = 0;
+
+        const progressText = this.add.text(width / 2 - 200, height - 80, `Problem 1/${problems}`, {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        let problemText = null;
+        let choiceButtons = [];
+        let feedbackText = null;
+
+        const generateChainProblem = (difficulty) => {
+            // Number of operations increases with difficulty: 2, 2, 3, 3, 4
+            const numOps = difficulty < 2 ? 2 : difficulty < 4 ? 3 : 4;
+            const ops = ['+', '-', '×', '÷'];
+            const opSymbols = { '+': '+', '-': '-', '×': '×', '÷': '÷' };
+
+            // Pick the starting number (the answer the player must find)
+            let answer;
+            if (difficulty < 2) {
+                answer = Phaser.Math.Between(1, 10);
+            } else if (difficulty < 4) {
+                answer = Phaser.Math.Between(2, 15);
+            } else {
+                answer = Phaser.Math.Between(3, 20);
+            }
+
+            // Build a chain of operations and operands
+            const chain = []; // each entry: { op, operand }
+            let current = answer;
+
+            for (let i = 0; i < numOps; i++) {
+                const op = ops[Phaser.Math.Between(0, 3)];
+                let operand;
+
+                if (op === '+') {
+                    operand = Phaser.Math.Between(1, difficulty < 2 ? 10 : 20);
+                    chain.push({ op: '+', operand });
+                } else if (op === '-') {
+                    operand = Phaser.Math.Between(1, difficulty < 2 ? 10 : 20);
+                    chain.push({ op: '-', operand });
+                } else if (op === '×') {
+                    operand = Phaser.Math.Between(2, difficulty < 2 ? 5 : 8);
+                    chain.push({ op: '×', operand });
+                } else {
+                    // Division: pick a divisor that divides evenly at eval time
+                    // We'll use small divisors and adjust
+                    operand = Phaser.Math.Between(2, difficulty < 2 ? 4 : 6);
+                    chain.push({ op: '÷', operand });
+                }
+            }
+
+            // Evaluate with PEMDAS: ? op1 a op2 b op3 c ...
+            // Build the expression tokens: [answer, op1, a, op2, b, ...]
+            // Then evaluate using PEMDAS
+            const evaluateChain = (startVal) => {
+                const tokens = [startVal];
+                for (const step of chain) {
+                    tokens.push(step.op);
+                    tokens.push(step.operand);
+                }
+
+                // First pass: handle × and ÷
+                const reduced = [tokens[0]];
+                for (let i = 1; i < tokens.length; i += 2) {
+                    const op = tokens[i];
+                    const val = tokens[i + 1];
+                    if (op === '×') {
+                        reduced[reduced.length - 1] = reduced[reduced.length - 1] * val;
+                    } else if (op === '÷') {
+                        reduced[reduced.length - 1] = reduced[reduced.length - 1] / val;
+                    } else {
+                        reduced.push(op);
+                        reduced.push(val);
+                    }
+                }
+
+                // Second pass: handle + and -
+                let result = reduced[0];
+                for (let i = 1; i < reduced.length; i += 2) {
+                    const op = reduced[i];
+                    const val = reduced[i + 1];
+                    if (op === '+') result += val;
+                    else if (op === '-') result -= val;
+                }
+                return result;
+            };
+
+            // Compute the result
+            let result = evaluateChain(answer);
+
+            // Ensure result is a nice integer; if not, regenerate with simpler ops
+            // Try a few times, then fallback to addition-only
+            let attempts = 0;
+            while ((!Number.isInteger(result) || result < -50 || result > 200) && attempts < 10) {
+                // Regenerate chain with safer operations
+                chain.length = 0;
+                for (let i = 0; i < numOps; i++) {
+                    const safeOps = ['+', '-', '×'];
+                    const op = safeOps[Phaser.Math.Between(0, 2)];
+                    let operand;
+                    if (op === '×') {
+                        operand = Phaser.Math.Between(2, 4);
+                    } else {
+                        operand = Phaser.Math.Between(1, 10);
+                    }
+                    chain.push({ op, operand });
+                }
+                result = evaluateChain(answer);
+                attempts++;
+            }
+
+            // Final fallback: just use addition
+            if (!Number.isInteger(result) || result < -50 || result > 200) {
+                chain.length = 0;
+                for (let i = 0; i < numOps; i++) {
+                    chain.push({ op: '+', operand: Phaser.Math.Between(1, 10) });
+                }
+                result = evaluateChain(answer);
+            }
+
+            // Build display string
+            let equation = '?';
+            for (const step of chain) {
+                equation += ` ${step.op} ${step.operand}`;
+            }
+            equation += ` = ${result}`;
+
+            return { equation, answer };
+        };
+
+        const showProblem = () => {
+            if (problemText) problemText.destroy();
+            choiceButtons.forEach(b => { b.bg.destroy(); b.text.destroy(); });
+            choiceButtons = [];
+            if (feedbackText) { feedbackText.destroy(); feedbackText = null; }
+
+            progressText.setText(`Problem ${currentProblem + 1}/${problems}`);
+
+            const { equation, answer } = generateChainProblem(currentProblem);
+
+            problemText = this.add.text(width / 2, height / 2 - 80, equation, {
+                fontSize: '36px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            // Generate 3 unique wrong answers
+            const wrongSet = new Set();
+            while (wrongSet.size < 3) {
+                const offset = Phaser.Math.Between(-5, 5);
+                const wrong = answer + offset;
+                if (wrong !== answer && wrong > 0) {
+                    wrongSet.add(wrong);
+                }
+            }
+
+            const choices = Phaser.Utils.Array.Shuffle([answer, ...wrongSet]);
+
+            const btnWidth = 120;
+            const btnSpacing = 140;
+            const startX = width / 2 - (btnSpacing * 1.5);
+            const btnY = height / 2 + 40;
+
+            choices.forEach((choice, i) => {
+                const bx = startX + i * btnSpacing;
+                const bg = this.add.rectangle(bx, btnY, btnWidth, 56, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true });
+                const txt = this.add.text(bx, btnY, `${choice}`, {
+                    fontSize: '28px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+
+                bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                bg.on('pointerdown', () => {
+                    if (choice === answer) {
+                        bg.setFillStyle(0x44dd44);
+                        choiceButtons.forEach(b => b.bg.disableInteractive());
+
+                        if (feedbackText) feedbackText.destroy();
+                        feedbackText = this.add.text(width / 2, btnY + 60, 'Correct!', {
+                            fontSize: '24px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#44dd44',
+                        }).setOrigin(0.5);
+
+                        currentProblem++;
+                        if (currentProblem >= problems) {
+                            timerEvent.remove(false);
+                            this.mathCleanup = null;
+                            this.time.delayedCall(800, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
+                        } else {
+                            this.time.delayedCall(800, () => {
+                                showProblem();
+                            });
+                        }
+                    } else {
+                        bg.setFillStyle(0xff4444);
+                        bg.disableInteractive();
+
+                        if (feedbackText) feedbackText.destroy();
+                        feedbackText = this.add.text(width / 2, btnY + 60, 'Wrong! Try again.', {
+                            fontSize: '24px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#ff4444',
+                        }).setOrigin(0.5);
+                    }
+                });
+
+                choiceButtons.push({ bg, text: txt });
             });
         };
 
