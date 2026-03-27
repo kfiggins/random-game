@@ -78,6 +78,7 @@ const LevelRegistry = {
     71: { type: 'simon-says', config: { sequenceLength: 15, colors: 8, playbackSpeed: 300, replayAllowed: false, decoyFlash: true } },
     72: { type: 'sliding-puzzle', config: { size: 5, useImage: true, timeLimit: 180 } },
     73: { type: 'memory-cards', config: { rows: 6, cols: 8, timeLimit: 30, reshuffleAfter: 1, flipBackSpeed: 250, blackout: true, fakeCards: 4 } },
+    74: { type: 'maze', config: { width: 31, height: 31, cellSize: 18, fogOfWar: true, viewRadius: 2, enemies: 7, traps: 8, timeLimit: 90, hasKeys: true, keys: 4, teleporters: 2 } },
 };
 
 // ============================================================
@@ -1083,7 +1084,7 @@ class GameScene extends Phaser.Scene {
 
     createMazePuzzle(config) {
         const { width, height } = this.scale;
-        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps, timeLimit } = config;
+        const { width: mazeW, height: mazeH, cellSize, hasKeys, keys: numKeys, fogOfWar, viewRadius, enemies: numEnemies, traps: numTraps, timeLimit, teleporters: numTeleporters } = config;
 
         // Generate maze using recursive backtracker algorithm
         // 0 = path, 1 = wall, 2+ = door (blocked until key collected)
@@ -1224,7 +1225,7 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        const instrText = (hasKeys && numEnemies && numTraps && timeLimit) ? 'Keys, enemies, traps & timer! Reach the star!' : hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
+        const instrText = (hasKeys && numEnemies && numTraps && numTeleporters) ? 'Everything! Keys, enemies, traps & portals! Reach the star!' : (hasKeys && numEnemies && numTraps && timeLimit) ? 'Keys, enemies, traps & timer! Reach the star!' : hasKeys ? 'Collect keys to unlock doors! Reach the star!' : (numEnemies && numTraps) ? 'Avoid enemies & hidden traps! Reach the star!' : numEnemies ? 'Avoid the enemies! Reach the star!' : numTraps ? 'Watch out for hidden traps! Reach the star!' : fogOfWar ? 'Navigate through the fog! Reach the star!' : 'Use arrow keys to reach the star!';
         this.add.text(width / 2, 30, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
@@ -1468,6 +1469,7 @@ class GameScene extends Phaser.Scene {
         };
 
         // Respawn player at start (don't reset keys)
+        let _updateTeleporterVis = null;
         const respawnPlayer = () => {
             playerCol = 0;
             playerRow = 0;
@@ -1477,6 +1479,7 @@ class GameScene extends Phaser.Scene {
             );
             updateFog();
             updateEnemyVisibility();
+            if (_updateTeleporterVis) _updateTeleporterVis();
         };
 
         // Trap setup - hidden cells that teleport player to a random position
@@ -1528,6 +1531,131 @@ class GameScene extends Phaser.Scene {
                 trapData.push({ r: cell.r, c: cell.c, sprite: trapSprite, triggered: false });
             }
         }
+
+        // Teleporter setup - pairs of linked portals
+        const teleporterData = [];
+        if (numTeleporters && numTeleporters > 0) {
+            const teleCandidates = [];
+            for (let r = 0; r < mazeH; r++) {
+                for (let c = 0; c < mazeW; c++) {
+                    if (maze[r][c] !== 0) continue;
+                    if (r === 0 && c === 0) continue;
+                    if (r === mazeH - 1 && c === mazeW - 1) continue;
+                    const isKey = keyCells.some(kc => kc.r === r && kc.c === c);
+                    const isDoor = doorCells.some(dc => dc.r === r && dc.c === c);
+                    const isTrap = trapData.some(t => t.r === r && t.c === c);
+                    if (isKey || isDoor || isTrap) continue;
+                    teleCandidates.push({ r, c });
+                }
+            }
+
+            // BFS distance for spreading teleporters
+            const tpDist = Array.from({ length: mazeH }, () => Array(mazeW).fill(-1));
+            tpDist[0][0] = 0;
+            const tpq = [{ r: 0, c: 0 }];
+            let tpqi = 0;
+            while (tpqi < tpq.length) {
+                const { r, c } = tpq[tpqi++];
+                for (const [dr, dc] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0 && tpDist[nr][nc] === -1) {
+                        tpDist[nr][nc] = tpDist[r][c] + 1;
+                        tpq.push({ r: nr, c: nc });
+                    }
+                }
+            }
+            teleCandidates.sort((a, b) => tpDist[a.r][a.c] - tpDist[b.r][b.c]);
+
+            const teleColors = [0x00ffcc, 0xff66ff, 0x66ccff, 0xffcc00];
+            const usedCells = new Set();
+
+            for (let tp = 0; tp < numTeleporters && teleCandidates.length >= 2; tp++) {
+                const color = teleColors[tp % teleColors.length];
+
+                // Place first portal in the first third, second in the last third
+                const firstIdx = Math.floor(teleCandidates.length * (0.1 + tp * 0.15));
+                let firstCell = null;
+                for (let i = firstIdx; i < teleCandidates.length; i++) {
+                    const c = teleCandidates[i];
+                    if (!usedCells.has(`${c.r},${c.c}`)) {
+                        firstCell = c;
+                        break;
+                    }
+                }
+                if (!firstCell) continue;
+                usedCells.add(`${firstCell.r},${firstCell.c}`);
+
+                const secondIdx = Math.floor(teleCandidates.length * (0.6 + tp * 0.15));
+                let secondCell = null;
+                for (let i = secondIdx; i < teleCandidates.length; i++) {
+                    const c = teleCandidates[i];
+                    if (!usedCells.has(`${c.r},${c.c}`)) {
+                        secondCell = c;
+                        break;
+                    }
+                }
+                if (!secondCell) continue;
+                usedCells.add(`${secondCell.r},${secondCell.c}`);
+
+                // Create swirling circle sprites for both portals
+                const createPortalSprite = (cell) => {
+                    const px = offsetX + cell.c * cellSize + cellSize / 2;
+                    const py = offsetY + cell.r * cellSize + cellSize / 2;
+                    const radius = cellSize / 3;
+
+                    // Outer ring
+                    const outer = this.add.circle(px, py, radius, color, 0.3);
+                    outer.setStrokeStyle(2, color);
+                    if (fogOfWar) outer.setDepth(11);
+
+                    // Inner swirl dot
+                    const inner = this.add.circle(px, py, radius * 0.4, color, 0.8);
+                    if (fogOfWar) inner.setDepth(11);
+
+                    // Animate swirl - rotate the inner dot around the center
+                    this.tweens.add({
+                        targets: outer,
+                        scaleX: { from: 0.8, to: 1.2 },
+                        scaleY: { from: 0.8, to: 1.2 },
+                        alpha: { from: 0.2, to: 0.5 },
+                        duration: 800,
+                        yoyo: true,
+                        repeat: -1,
+                        ease: 'Sine.easeInOut',
+                    });
+                    this.tweens.add({
+                        targets: inner,
+                        angle: 360,
+                        duration: 1500,
+                        repeat: -1,
+                    });
+
+                    return { outer, inner };
+                };
+
+                const sprite1 = createPortalSprite(firstCell);
+                const sprite2 = createPortalSprite(secondCell);
+
+                const portal1 = { r: firstCell.r, c: firstCell.c, linkedIdx: teleporterData.length + 1, sprites: sprite1 };
+                const portal2 = { r: secondCell.r, c: secondCell.c, linkedIdx: teleporterData.length, sprites: sprite2 };
+                teleporterData.push(portal1);
+                teleporterData.push(portal2);
+            }
+        }
+
+        // Update teleporter fog visibility
+        const updateTeleporterVisibility = () => {
+            if (!fogOfWar) return;
+            for (const tp of teleporterData) {
+                const dist = Math.abs(tp.r - playerRow) + Math.abs(tp.c - playerCol);
+                const visible = dist <= viewRadius;
+                tp.sprites.outer.setVisible(visible);
+                tp.sprites.inner.setVisible(visible);
+            }
+        };
+        _updateTeleporterVis = updateTeleporterVisibility;
+        updateTeleporterVisibility();
 
         // Get a random path cell for trap teleport destination
         const getRandomPathCell = () => {
@@ -1608,6 +1736,7 @@ class GameScene extends Phaser.Scene {
             // Update fog of war
             updateFog();
             updateEnemyVisibility();
+            updateTeleporterVisibility();
 
             // Check enemy collision after player moves
             if (checkEnemyCollision()) {
@@ -1653,6 +1782,7 @@ class GameScene extends Phaser.Scene {
                         }
                         updateFog();
                         updateEnemyVisibility();
+                        updateTeleporterVisibility();
                         // Check if teleported onto enemy
                         if (checkEnemyCollision()) {
                             respawnPlayer();
@@ -1663,6 +1793,44 @@ class GameScene extends Phaser.Scene {
                     // Hide trap sprite after showing it
                     this.time.delayedCall(800, () => {
                         trap.sprite.setVisible(false);
+                    });
+                    return;
+                }
+            }
+
+            // Check teleporter
+            for (const tp of teleporterData) {
+                if (playerRow === tp.r && playerCol === tp.c) {
+                    const linked = teleporterData[tp.linkedIdx];
+                    inputLocked = true;
+
+                    // Brief flash effect then teleport
+                    this.tweens.add({
+                        targets: player,
+                        alpha: 0,
+                        duration: 200,
+                        onComplete: () => {
+                            playerCol = linked.c;
+                            playerRow = linked.r;
+                            player.setPosition(
+                                offsetX + playerCol * cellSize + cellSize / 2,
+                                offsetY + playerRow * cellSize + cellSize / 2
+                            );
+                            this.tweens.add({
+                                targets: player,
+                                alpha: 1,
+                                duration: 200,
+                                onComplete: () => {
+                                    updateFog();
+                                    updateEnemyVisibility();
+                                    updateTeleporterVisibility();
+                                    if (checkEnemyCollision()) {
+                                        respawnPlayer();
+                                    }
+                                    inputLocked = false;
+                                },
+                            });
+                        },
                     });
                     return;
                 }
