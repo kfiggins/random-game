@@ -51,6 +51,7 @@ const LevelRegistry = {
     44: { type: 'jigsaw', config: { rows: 4, cols: 4, canRotate: true } },
     45: { type: 'maze', config: { width: 23, height: 23, cellSize: 24, fogOfWar: true, viewRadius: 3, enemies: 3 } },
     46: { type: 'pattern-complete', config: { patternLength: 12, numChoices: 6, is2D: true, perspective: true } },
+    47: { type: 'sorting', config: { count: 12, maxValue: 100, adjacentOnly: true, maxSwaps: 30 } },
 };
 
 // ============================================================
@@ -806,7 +807,7 @@ class GameScene extends Phaser.Scene {
 
     createSortingPuzzle(config) {
         const { width, height } = this.scale;
-        const { count, maxValue, maxSwaps } = config;
+        const { count, maxValue, maxSwaps, adjacentOnly } = config;
 
         // Generate unique random numbers
         const numbers = [];
@@ -825,7 +826,10 @@ class GameScene extends Phaser.Scene {
         }
 
         // Instructions
-        this.add.text(width / 2, 70, 'Click two numbers to swap. Sort ascending!', {
+        const instrText = adjacentOnly
+            ? 'Click two ADJACENT numbers to swap. Sort ascending!'
+            : 'Click two numbers to swap. Sort ascending!';
+        this.add.text(width / 2, 70, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
             color: '#aaaaaa',
@@ -840,10 +844,10 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
         }).setOrigin(0.5);
 
-        // Card layout
-        const cardW = 80;
-        const cardH = 100;
-        const padding = 20;
+        // Card layout - scale down for many cards
+        const cardW = count <= 8 ? 80 : Math.min(80, Math.floor((width - 60) / count - 8));
+        const cardH = count <= 8 ? 100 : Math.min(100, cardW + 20);
+        const padding = count <= 8 ? 20 : 8;
         const totalW = count * cardW + (count - 1) * padding;
         const startX = (width - totalW) / 2 + cardW / 2;
         const cardY = height / 2;
@@ -886,6 +890,18 @@ class GameScene extends Phaser.Scene {
                     outline.setVisible(false);
                     bg.setFillStyle(0x3a3a6a);
                 } else {
+                    // Check adjacency constraint
+                    if (adjacentOnly && Math.abs(selectedIndex - index) !== 1) {
+                        // Flash error for non-adjacent swap attempt
+                        const errorText = this.add.text(width / 2, height - 120, 'Adjacent swaps only!', {
+                            fontSize: '18px',
+                            fontFamily: 'Arial, sans-serif',
+                            color: '#ff4444',
+                        }).setOrigin(0.5);
+                        this.time.delayedCall(800, () => errorText.destroy());
+                        return;
+                    }
+
                     // Swap
                     const otherIndex = selectedIndex;
                     cards[otherIndex].outline.setVisible(false);
