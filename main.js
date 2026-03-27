@@ -103,6 +103,7 @@ const LevelRegistry = {
     96: { type: 'color-chain', config: { gridSize: 14, colors: 18, fillBoard: true, timeLimit: 300 } },
     97: { type: 'sorting', config: { count: 20, maxValue: 1000, mode: 'quantum', timeLimit: 90 } },
     98: { type: 'word-scramble', config: { mode: 'polyglot', languages: 3, wordsPerLang: 2, timeLimit: 120 } },
+    99: { type: 'multi-puzzle', config: { stages: 10, timeLimit: 360 } },
 };
 
 // ============================================================
@@ -10207,9 +10208,1476 @@ class GameScene extends Phaser.Scene {
             this.input.keyboard.on('keydown-DOWN', () => { if (!inputLocked) movePlayer(0, 1); });
         };
 
+        // ---- Level 99 Stage 1: Simon Says (15-step with decoys) ----
+        const startL99Stage1 = () => {
+            const sequenceLength = 15;
+            const numColors = 6;
+            const playbackSpeed = 350;
+
+            const allColorDefs = [
+                { name: 'Red', hex: 0xff4444, dimHex: 0x882222 },
+                { name: 'Blue', hex: 0x4488ff, dimHex: 0x224488 },
+                { name: 'Green', hex: 0x44dd44, dimHex: 0x227722 },
+                { name: 'Yellow', hex: 0xffdd44, dimHex: 0x887722 },
+                { name: 'Purple', hex: 0xaa44ff, dimHex: 0x552288 },
+                { name: 'Orange', hex: 0xff8844, dimHex: 0x884422 },
+            ];
+
+            const colorDefs = allColorDefs.slice(0, numColors);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 1: Watch the sequence! Ignore decoys!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const progressText = this.add.text(width / 2, height - 80, '', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressText);
+
+            const ssCols = 3;
+            const ssRows = 2;
+            const btnSize = 100;
+            const gap = 16;
+            const gridW = ssCols * btnSize + (ssCols - 1) * gap;
+            const gridH = ssRows * btnSize + (ssRows - 1) * gap;
+            const gridStartX = width / 2 - gridW / 2 + btnSize / 2;
+            const gridStartY = height / 2 - gridH / 2 + btnSize / 2;
+
+            const buttons = colorDefs.map((colorDef, i) => {
+                const col = i % ssCols;
+                const row = Math.floor(i / ssCols);
+                const x = gridStartX + col * (btnSize + gap);
+                const y = gridStartY + row * (btnSize + gap);
+
+                const rect = this.add.rectangle(x, y, btnSize, btnSize, colorDef.dimHex)
+                    .setInteractive({ useHandCursor: true });
+                const label = this.add.text(x, y, colorDef.name, {
+                    fontSize: '14px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                stageElements.push(rect, label);
+
+                return { rect, colorDef };
+            });
+
+            const sequence = [];
+            for (let i = 0; i < sequenceLength; i++) {
+                sequence.push(Phaser.Math.Between(0, colorDefs.length - 1));
+            }
+
+            let playerIndex = 0;
+            let inputEnabled = false;
+
+            const lightUp = (btnIndex, duration) => {
+                const btn = buttons[btnIndex];
+                btn.rect.setFillStyle(btn.colorDef.hex);
+                this.time.delayedCall(duration * 0.6, () => {
+                    btn.rect.setFillStyle(btn.colorDef.dimHex);
+                });
+            };
+
+            const playSequence = () => {
+                inputEnabled = false;
+                playerIndex = 0;
+                instrText.setText('Stage 1: Watch the sequence! Ignore decoys!');
+                progressText.setText('');
+
+                let delay = 0;
+                for (let i = 0; i < sequence.length; i++) {
+                    delay += playbackSpeed;
+                    const idx = i;
+                    this.time.delayedCall(delay, () => {
+                        lightUp(sequence[idx], playbackSpeed);
+                    });
+                    // Insert decoy flashes randomly between real flashes
+                    if (Math.random() < 0.3 && i < sequence.length - 1) {
+                        delay += playbackSpeed * 0.5;
+                        const decoyIdx = Phaser.Math.Between(0, colorDefs.length - 1);
+                        this.time.delayedCall(delay, () => {
+                            const btn = buttons[decoyIdx];
+                            btn.rect.setFillStyle(0x666666);
+                            this.time.delayedCall(100, () => {
+                                btn.rect.setFillStyle(btn.colorDef.dimHex);
+                            });
+                        });
+                    }
+                }
+
+                this.time.delayedCall(delay + playbackSpeed, () => {
+                    inputEnabled = true;
+                    instrText.setText('Stage 1: Your turn! Repeat the sequence.');
+                    progressText.setText(`0/${sequenceLength}`);
+                });
+            };
+
+            buttons.forEach((btn, btnIndex) => {
+                btn.rect.on('pointerdown', () => {
+                    if (!inputEnabled) return;
+
+                    btn.rect.setFillStyle(btn.colorDef.hex);
+                    this.time.delayedCall(200, () => {
+                        btn.rect.setFillStyle(btn.colorDef.dimHex);
+                    });
+
+                    if (sequence[playerIndex] === btnIndex) {
+                        playerIndex++;
+                        progressText.setText(`${playerIndex}/${sequenceLength}`);
+
+                        if (playerIndex >= sequenceLength) {
+                            inputEnabled = false;
+                            instrText.setText('Correct!');
+                            this.time.delayedCall(500, () => advanceStage());
+                        }
+                    } else {
+                        inputEnabled = false;
+                        instrText.setText('Wrong! Watch again...');
+                        progressText.setText('');
+                        this.time.delayedCall(1000, () => {
+                            playSequence();
+                        });
+                    }
+                });
+            });
+
+            playSequence();
+        };
+
+        // ---- Level 99 Stage 2: Light Toggle 6x6 with locked cells ----
+        const startL99Stage2 = () => {
+            const size = 6;
+            const numLocked = 6;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 2: Turn off all lights! Some cells are locked!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const grid = [];
+            for (let r = 0; r < size; r++) {
+                grid[r] = [];
+                for (let c = 0; c < size; c++) {
+                    grid[r][c] = Math.random() < 0.5 ? 1 : 0;
+                }
+            }
+
+            // Mark locked cells
+            const locked = Array.from({ length: size }, () => Array(size).fill(false));
+            let lockedCount = 0;
+            while (lockedCount < numLocked) {
+                const lr = Phaser.Math.Between(0, size - 1);
+                const lc = Phaser.Math.Between(0, size - 1);
+                if (!locked[lr][lc]) {
+                    locked[lr][lc] = true;
+                    lockedCount++;
+                }
+            }
+
+            const cellSize = Math.min(70, Math.floor((width - 80) / size));
+            const gapSize = 6;
+            const totalW = size * cellSize + (size - 1) * gapSize;
+            const totalH = size * cellSize + (size - 1) * gapSize;
+            const gridStartX = (width - totalW) / 2 + cellSize / 2;
+            const gridStartY = (height - totalH) / 2 + cellSize / 2;
+
+            const cells = [];
+
+            const renderGrid = () => {
+                cells.forEach(c => { if (c.rect) c.rect.destroy(); if (c.lockIcon) c.lockIcon.destroy(); stageElements = stageElements.filter(e => e !== c.rect && e !== c.lockIcon); });
+                cells.length = 0;
+
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const x = gridStartX + c * (cellSize + gapSize);
+                        const y = gridStartY + r * (cellSize + gapSize);
+                        const isOn = grid[r][c] === 1;
+                        const isLocked = locked[r][c];
+
+                        const color = isOn ? 0xffdd44 : 0x2a2a4a;
+                        const rect = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, color);
+                        if (!isLocked) rect.setInteractive({ useHandCursor: true });
+                        stageElements.push(rect);
+
+                        let lockIcon = null;
+                        if (isLocked) {
+                            lockIcon = this.add.text(x, y, 'X', {
+                                fontSize: '14px',
+                                fontFamily: 'Arial, sans-serif',
+                                color: '#ff4444',
+                            }).setOrigin(0.5);
+                            stageElements.push(lockIcon);
+                        }
+
+                        cells.push({ rect, lockIcon, r, c });
+
+                        if (!isLocked) {
+                            rect.on('pointerdown', () => {
+                                // Toggle self and neighbors
+                                const togglePositions = [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
+                                togglePositions.forEach(([tr, tc]) => {
+                                    if (tr >= 0 && tr < size && tc >= 0 && tc < size && !locked[tr][tc]) {
+                                        grid[tr][tc] = grid[tr][tc] === 1 ? 0 : 1;
+                                    }
+                                });
+                                renderGrid();
+
+                                // Check win
+                                let allOff = true;
+                                for (let rr = 0; rr < size; rr++) {
+                                    for (let cc = 0; cc < size; cc++) {
+                                        if (grid[rr][cc] === 1) allOff = false;
+                                    }
+                                }
+                                if (allOff) {
+                                    this.time.delayedCall(300, () => advanceStage());
+                                }
+                            });
+                        }
+                    }
+                }
+            };
+
+            // Ensure puzzle is solvable by applying random toggles
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    grid[r][c] = 0;
+                }
+            }
+            for (let i = 0; i < 15; i++) {
+                let tr, tc;
+                do {
+                    tr = Phaser.Math.Between(0, size - 1);
+                    tc = Phaser.Math.Between(0, size - 1);
+                } while (locked[tr][tc]);
+                const togglePositions = [[tr, tc], [tr - 1, tc], [tr + 1, tc], [tr, tc - 1], [tr, tc + 1]];
+                togglePositions.forEach(([r2, c2]) => {
+                    if (r2 >= 0 && r2 < size && c2 >= 0 && c2 < size && !locked[r2][c2]) {
+                        grid[r2][c2] = grid[r2][c2] === 1 ? 0 : 1;
+                    }
+                });
+            }
+
+            // Make sure not already solved
+            let anyOn = false;
+            for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (grid[r][c] === 1) anyOn = true;
+            if (!anyOn) grid[0][0] = 1;
+
+            renderGrid();
+        };
+
+        // ---- Level 99 Stage 3: 8x6 Memory Cards (blackout, fast flip) ----
+        const startL99Stage3 = () => {
+            const rows = 6, cols = 8;
+            const totalCards = rows * cols;
+            const numPairs = totalCards / 2;
+            const flipBackSpeed = 400;
+
+            const cardColors = [
+                { name: 'Red', hex: 0xff4444 },
+                { name: 'Blue', hex: 0x4488ff },
+                { name: 'Green', hex: 0x44dd44 },
+                { name: 'Purple', hex: 0xaa44ff },
+                { name: 'Orange', hex: 0xff8844 },
+                { name: 'Cyan', hex: 0x44dddd },
+                { name: 'Yellow', hex: 0xffdd44 },
+                { name: 'Pink', hex: 0xff44aa },
+                { name: 'Lime', hex: 0xaaff44 },
+                { name: 'Coral', hex: 0xff6666 },
+                { name: 'Teal', hex: 0x44aaaa },
+                { name: 'Gold', hex: 0xddaa44 },
+                { name: 'Violet', hex: 0x8844dd },
+                { name: 'Mint', hex: 0x44ffaa },
+                { name: 'Rose', hex: 0xff88aa },
+                { name: 'Sky', hex: 0x88bbff },
+                { name: 'Peach', hex: 0xffbb88 },
+                { name: 'Plum', hex: 0xaa44aa },
+                { name: 'Slate', hex: 0x8899aa },
+                { name: 'Olive', hex: 0x88aa44 },
+                { name: 'Aqua', hex: 0x44ffdd },
+                { name: 'Wine', hex: 0xaa4466 },
+                { name: 'Sand', hex: 0xddcc88 },
+                { name: 'Navy', hex: 0x3344aa },
+            ];
+
+            const cardData = [];
+            for (let i = 0; i < numPairs; i++) {
+                cardData.push(cardColors[i], cardColors[i]);
+            }
+            Phaser.Utils.Array.Shuffle(cardData);
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 3: Memory Cards! Fast flip, blackout after match!', {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const padding = 6;
+            const availW = width - 30;
+            const availH = height - 160;
+            const cardW = Math.min(70, Math.floor((availW - (cols - 1) * padding) / cols));
+            const cardH = Math.min(70, Math.floor((availH - (rows - 1) * padding) / rows));
+            const gridW2 = cols * (cardW + padding) - padding;
+            const gridH2 = rows * (cardH + padding) - padding;
+            const cardsStartX = (width - gridW2) / 2 + cardW / 2;
+            const cardsStartY = (height - gridH2) / 2 + 10;
+
+            let firstCard = null;
+            let secondCard = null;
+            let lockBoard = false;
+            let matchesFound = 0;
+
+            for (let i = 0; i < totalCards; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = cardsStartX + col * (cardW + padding);
+                const y = cardsStartY + row * (cardH + padding);
+                const color = cardData[i];
+
+                const back = this.add.rectangle(x, y, cardW, cardH, 0x3a3a6a)
+                    .setInteractive({ useHandCursor: true });
+                const qmFontSize = Math.min(24, Math.floor(cardH * 0.3));
+                const questionMark = this.add.text(x, y, '?', {
+                    fontSize: `${qmFontSize}px`,
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#888888',
+                }).setOrigin(0.5);
+
+                const face = this.add.rectangle(x, y, cardW, cardH, color.hex).setVisible(false);
+                const lblFontSize = Math.min(10, Math.floor(cardW * 0.14));
+                const colorLabel = this.add.text(x, y, color.name, {
+                    fontSize: `${lblFontSize}px`,
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5).setVisible(false);
+
+                stageElements.push(back, questionMark, face, colorLabel);
+
+                const card = { back, questionMark, face, colorLabel, colorName: color.name, flipped: false, matched: false };
+
+                back.on('pointerover', () => { if (!card.flipped && !card.matched) back.setFillStyle(0x5a5a9a); });
+                back.on('pointerout', () => { if (!card.flipped && !card.matched) back.setFillStyle(0x3a3a6a); });
+
+                back.on('pointerdown', () => {
+                    if (lockBoard || card.flipped || card.matched) return;
+
+                    card.flipped = true;
+                    back.setVisible(false);
+                    questionMark.setVisible(false);
+                    face.setVisible(true);
+                    colorLabel.setVisible(true);
+
+                    if (!firstCard) {
+                        firstCard = card;
+                    } else {
+                        secondCard = card;
+                        lockBoard = true;
+
+                        if (firstCard.colorName === secondCard.colorName) {
+                            firstCard.matched = true;
+                            secondCard.matched = true;
+                            // Blackout matched cards
+                            this.time.delayedCall(300, () => {
+                                firstCard.face.setVisible(false);
+                                firstCard.colorLabel.setVisible(false);
+                                secondCard.face.setVisible(false);
+                                secondCard.colorLabel.setVisible(false);
+                            });
+                            firstCard = null;
+                            secondCard = null;
+                            lockBoard = false;
+                            matchesFound++;
+
+                            if (matchesFound >= numPairs) {
+                                this.time.delayedCall(500, () => advanceStage());
+                            }
+                        } else {
+                            const fc = firstCard;
+                            const sc = secondCard;
+                            this.time.delayedCall(flipBackSpeed, () => {
+                                fc.flipped = false;
+                                fc.back.setVisible(true);
+                                fc.questionMark.setVisible(true);
+                                fc.face.setVisible(false);
+                                fc.colorLabel.setVisible(false);
+                                sc.flipped = false;
+                                sc.back.setVisible(true);
+                                sc.questionMark.setVisible(true);
+                                sc.face.setVisible(false);
+                                sc.colorLabel.setVisible(false);
+                                firstCard = null;
+                                secondCard = null;
+                                lockBoard = false;
+                            });
+                        }
+                    }
+                });
+            }
+        };
+
+        // ---- Level 99 Stage 4: Sliding Puzzle (5x5) ----
+        const startL99Stage4 = () => {
+            const size = 5;
+            const tileSize = 70;
+            const tileGap = 4;
+            const totalSize = size * tileSize + (size - 1) * tileGap;
+            const puzzleStartX = (width - totalSize) / 2 + tileSize / 2;
+            const puzzleStartY = (height - totalSize) / 2 + tileSize / 2 - 10;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 4: Solve the 5x5 sliding puzzle!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const board = [];
+            for (let r = 0; r < size; r++) {
+                board[r] = [];
+                for (let c = 0; c < size; c++) {
+                    const val = r * size + c + 1;
+                    board[r][c] = val === size * size ? 0 : val;
+                }
+            }
+
+            let emptyR = size - 1;
+            let emptyC = size - 1;
+
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            for (let i = 0; i < 500; i++) {
+                const validMoves = [];
+                for (const [dr, dc] of dirs) {
+                    const nr = emptyR + dr;
+                    const nc = emptyC + dc;
+                    if (nr >= 0 && nr < size && nc >= 0 && nc < size) {
+                        validMoves.push([nr, nc]);
+                    }
+                }
+                const [mr, mc] = validMoves[Math.floor(Math.random() * validMoves.length)];
+                board[emptyR][emptyC] = board[mr][mc];
+                board[mr][mc] = 0;
+                emptyR = mr;
+                emptyC = mc;
+            }
+
+            let moveCount = 0;
+            const moveText = this.add.text(width / 2, height - 80, 'Moves: 0', {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(moveText);
+
+            let tiles = [];
+
+            const renderBoard = () => {
+                tiles.forEach(t => {
+                    if (t.bg) t.bg.destroy();
+                    if (t.label) t.label.destroy();
+                    stageElements = stageElements.filter(e => e !== t.bg && e !== t.label);
+                });
+                tiles = [];
+
+                for (let r = 0; r < size; r++) {
+                    for (let c = 0; c < size; c++) {
+                        const val = board[r][c];
+                        if (val === 0) continue;
+
+                        const x = puzzleStartX + c * (tileSize + tileGap);
+                        const y = puzzleStartY + r * (tileSize + tileGap);
+
+                        const bg = this.add.rectangle(x, y, tileSize, tileSize, 0x4a6a9a)
+                            .setInteractive({ useHandCursor: true });
+                        const label = this.add.text(x, y, `${val}`, {
+                            fontSize: '24px',
+                            fontFamily: 'Arial, sans-serif',
+                            fontStyle: 'bold',
+                            color: '#ffffff',
+                        }).setOrigin(0.5);
+                        stageElements.push(bg, label);
+
+                        bg.on('pointerdown', () => {
+                            const dr = Math.abs(r - emptyR);
+                            const dc = Math.abs(c - emptyC);
+                            if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                                board[emptyR][emptyC] = board[r][c];
+                                board[r][c] = 0;
+                                emptyR = r;
+                                emptyC = c;
+                                moveCount++;
+                                moveText.setText(`Moves: ${moveCount}`);
+                                renderBoard();
+
+                                if (this.checkSlidingPuzzleSolved(board, size)) {
+                                    this.time.delayedCall(300, () => advanceStage());
+                                }
+                            }
+                        });
+
+                        bg.on('pointerover', () => {
+                            const dr = Math.abs(r - emptyR);
+                            const dc = Math.abs(c - emptyC);
+                            if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                                bg.setFillStyle(0x6a8aba);
+                            }
+                        });
+                        bg.on('pointerout', () => bg.setFillStyle(0x4a6a9a));
+
+                        tiles.push({ bg, label });
+                    }
+                }
+            };
+
+            renderBoard();
+        };
+
+        // ---- Level 99 Stage 5: Color Chain (7x7, 6 colors) ----
+        const startL99Stage5 = () => {
+            const gridSize = 7;
+            const numColors = 6;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 5: Clear all chains of 3+ same-color!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const colorPalette = [0xff4444, 0x4488ff, 0x44dd44, 0xffdd44, 0xaa44ff, 0xff8844];
+            const cellSize = Math.min(60, Math.floor((width - 80) / gridSize));
+            const gapSize = 4;
+            const totalW = gridSize * cellSize + (gridSize - 1) * gapSize;
+            const totalH = gridSize * cellSize + (gridSize - 1) * gapSize;
+            const ccStartX = (width - totalW) / 2 + cellSize / 2;
+            const ccStartY = (height - totalH) / 2 + cellSize / 2;
+
+            const board = [];
+            for (let r = 0; r < gridSize; r++) {
+                board[r] = [];
+                for (let c = 0; c < gridSize; c++) {
+                    board[r][c] = Phaser.Math.Between(0, numColors - 1);
+                }
+            }
+
+            let selected = null;
+            let cellRects = [];
+
+            const renderBoard = () => {
+                cellRects.forEach(cr => {
+                    if (cr.rect) cr.rect.destroy();
+                    stageElements = stageElements.filter(e => e !== cr.rect);
+                });
+                cellRects = [];
+
+                for (let r = 0; r < gridSize; r++) {
+                    for (let c = 0; c < gridSize; c++) {
+                        if (board[r][c] === -1) continue;
+                        const x = ccStartX + c * (cellSize + gapSize);
+                        const y = ccStartY + r * (cellSize + gapSize);
+
+                        const rect = this.add.rectangle(x, y, cellSize - 2, cellSize - 2, colorPalette[board[r][c]])
+                            .setInteractive({ useHandCursor: true });
+                        stageElements.push(rect);
+                        cellRects.push({ rect, r, c });
+
+                        rect.on('pointerdown', () => {
+                            if (selected === null) {
+                                selected = { r, c };
+                                rect.setStrokeStyle(3, 0xffffff);
+                            } else {
+                                const dr = Math.abs(selected.r - r);
+                                const dc = Math.abs(selected.c - c);
+                                if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+                                    // Swap
+                                    const tmp = board[selected.r][selected.c];
+                                    board[selected.r][selected.c] = board[r][c];
+                                    board[r][c] = tmp;
+
+                                    // Check for chains
+                                    const cleared = findChains();
+                                    if (cleared > 0) {
+                                        applyGravity();
+                                    } else {
+                                        // Swap back
+                                        const tmp2 = board[selected.r][selected.c];
+                                        board[selected.r][selected.c] = board[r][c];
+                                        board[r][c] = tmp2;
+                                    }
+                                }
+                                selected = null;
+                                renderBoard();
+
+                                // Check win - all cleared
+                                let remaining = 0;
+                                for (let rr = 0; rr < gridSize; rr++) {
+                                    for (let cc = 0; cc < gridSize; cc++) {
+                                        if (board[rr][cc] !== -1) remaining++;
+                                    }
+                                }
+                                if (remaining === 0) {
+                                    this.time.delayedCall(300, () => advanceStage());
+                                }
+                            }
+                        });
+                    }
+                }
+            };
+
+            const findChains = () => {
+                const toRemove = new Set();
+                // Horizontal
+                for (let r = 0; r < gridSize; r++) {
+                    for (let c = 0; c < gridSize - 2; c++) {
+                        if (board[r][c] !== -1 && board[r][c] === board[r][c + 1] && board[r][c] === board[r][c + 2]) {
+                            let end = c + 2;
+                            while (end + 1 < gridSize && board[r][end + 1] === board[r][c]) end++;
+                            for (let k = c; k <= end; k++) toRemove.add(`${r},${k}`);
+                        }
+                    }
+                }
+                // Vertical
+                for (let c = 0; c < gridSize; c++) {
+                    for (let r = 0; r < gridSize - 2; r++) {
+                        if (board[r][c] !== -1 && board[r][c] === board[r + 1][c] && board[r][c] === board[r + 2][c]) {
+                            let end = r + 2;
+                            while (end + 1 < gridSize && board[end + 1][c] === board[r][c]) end++;
+                            for (let k = r; k <= end; k++) toRemove.add(`${k},${c}`);
+                        }
+                    }
+                }
+                toRemove.forEach(key => {
+                    const [r, c] = key.split(',').map(Number);
+                    board[r][c] = -1;
+                });
+                return toRemove.size;
+            };
+
+            const applyGravity = () => {
+                for (let c = 0; c < gridSize; c++) {
+                    let writeRow = gridSize - 1;
+                    for (let r = gridSize - 1; r >= 0; r--) {
+                        if (board[r][c] !== -1) {
+                            board[writeRow][c] = board[r][c];
+                            if (writeRow !== r) board[r][c] = -1;
+                            writeRow--;
+                        }
+                    }
+                }
+                // Cascade
+                const more = findChains();
+                if (more > 0) applyGravity();
+            };
+
+            // Pre-clear initial chains
+            let initialCleared = findChains();
+            while (initialCleared > 0) {
+                applyGravity();
+                // Fill empty with new random
+                for (let r = 0; r < gridSize; r++) {
+                    for (let c = 0; c < gridSize; c++) {
+                        if (board[r][c] === -1) {
+                            board[r][c] = Phaser.Math.Between(0, numColors - 1);
+                        }
+                    }
+                }
+                initialCleared = findChains();
+            }
+
+            renderBoard();
+        };
+
+        // ---- Level 99 Stage 6: Tower of Hanoi (6 discs) ----
+        const startL99Stage6 = () => {
+            const numDiscs = 6;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 6: Move all discs to the right peg!', {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const pegs = [[], [], []];
+            for (let i = numDiscs; i >= 1; i--) {
+                pegs[0].push(i);
+            }
+
+            const pegX = [width / 4, width / 2, (3 * width) / 4];
+            const baseY = height - 100;
+            const pegWidth = 10;
+            const pegHeight = 200;
+            const discHeight = 22;
+            const maxDiscWidth = 140;
+
+            let selectedPeg = -1;
+            let moveCount = 0;
+
+            const moveText = this.add.text(width / 2, height - 70, 'Moves: 0', {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(moveText);
+
+            const discColors = [0xff4444, 0xff8844, 0xffdd44, 0x44dd44, 0x4488ff, 0xaa44ff];
+
+            let pegRects = [];
+            let discRects = [];
+            let pegClickAreas = [];
+
+            const renderPegs = () => {
+                pegRects.forEach(p => { p.destroy(); stageElements = stageElements.filter(e => e !== p); });
+                discRects.forEach(d => { d.destroy(); stageElements = stageElements.filter(e => e !== d); });
+                pegClickAreas.forEach(a => { a.destroy(); stageElements = stageElements.filter(e => e !== a); });
+                pegRects = [];
+                discRects = [];
+                pegClickAreas = [];
+
+                // Draw pegs
+                for (let p = 0; p < 3; p++) {
+                    const pegRect = this.add.rectangle(pegX[p], baseY - pegHeight / 2, pegWidth, pegHeight, 0x666666);
+                    stageElements.push(pegRect);
+                    pegRects.push(pegRect);
+
+                    // Base
+                    const baseRect = this.add.rectangle(pegX[p], baseY, maxDiscWidth + 20, 8, 0x888888);
+                    stageElements.push(baseRect);
+                    pegRects.push(baseRect);
+
+                    // Click area
+                    const clickArea = this.add.rectangle(pegX[p], baseY - pegHeight / 2, maxDiscWidth + 30, pegHeight + 20, 0x000000, 0)
+                        .setInteractive({ useHandCursor: true });
+                    stageElements.push(clickArea);
+                    pegClickAreas.push(clickArea);
+
+                    clickArea.on('pointerdown', () => {
+                        if (selectedPeg === -1) {
+                            if (pegs[p].length > 0) {
+                                selectedPeg = p;
+                                renderPegs();
+                            }
+                        } else {
+                            if (p !== selectedPeg) {
+                                const disc = pegs[selectedPeg][pegs[selectedPeg].length - 1];
+                                if (pegs[p].length === 0 || pegs[p][pegs[p].length - 1] > disc) {
+                                    pegs[p].push(pegs[selectedPeg].pop());
+                                    moveCount++;
+                                    moveText.setText(`Moves: ${moveCount}`);
+                                }
+                            }
+                            selectedPeg = -1;
+                            renderPegs();
+
+                            if (pegs[2].length === numDiscs) {
+                                this.time.delayedCall(300, () => advanceStage());
+                            }
+                        }
+                    });
+
+                    // Draw discs on this peg
+                    for (let d = 0; d < pegs[p].length; d++) {
+                        const discSize = pegs[p][d];
+                        const discWidth = 30 + (discSize / numDiscs) * (maxDiscWidth - 30);
+                        const dy = baseY - 4 - d * (discHeight + 2) - discHeight / 2;
+                        const isTop = (d === pegs[p].length - 1 && p === selectedPeg);
+                        const color = isTop ? 0xffffff : discColors[discSize - 1];
+                        const disc = this.add.rectangle(pegX[p], dy, discWidth, discHeight, color)
+                            .setStrokeStyle(isTop ? 2 : 0, 0xffffff);
+                        stageElements.push(disc);
+                        discRects.push(disc);
+                    }
+
+                    // Peg label
+                    const label = this.add.text(pegX[p], baseY + 16, p === selectedPeg ? '[ Selected ]' : `Peg ${p + 1}`, {
+                        fontSize: '14px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: p === selectedPeg ? '#ffdd44' : '#aaaaaa',
+                    }).setOrigin(0.5);
+                    stageElements.push(label);
+                    pegRects.push(label);
+                }
+            };
+
+            renderPegs();
+        };
+
+        // ---- Level 99 Stage 7: 8 math problems (equation builder) ----
+        const startL99Stage7 = () => {
+            const totalProblems = 8;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 7: Build the equation! Place operators to match the target.', {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            let currentProblem = 0;
+
+            const progressText = this.add.text(width / 2, height - 80, `Problem 1/${totalProblems}`, {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(progressText);
+
+            let problemElements = [];
+
+            const showProblem = () => {
+                problemElements.forEach(e => { e.destroy(); stageElements = stageElements.filter(el => el !== e); });
+                problemElements = [];
+                progressText.setText(`Problem ${currentProblem + 1}/${totalProblems}`);
+
+                // Generate: a ? b ? c = target
+                const a = Phaser.Math.Between(2, 15);
+                const b = Phaser.Math.Between(2, 12);
+                const c = Phaser.Math.Between(1, 10);
+                const ops = ['+', '-', '*'];
+
+                // Pick random correct operators
+                const op1 = Phaser.Utils.Array.GetRandom(ops);
+                const op2 = Phaser.Utils.Array.GetRandom(ops);
+
+                const evaluate = (o1, o2) => {
+                    // Respect operator precedence
+                    if (o2 === '*') {
+                        const right = b * c;
+                        if (o1 === '+') return a + right;
+                        if (o1 === '-') return a - right;
+                        return a * right;
+                    }
+                    if (o1 === '*') {
+                        const left = a * b;
+                        if (o2 === '+') return left + c;
+                        if (o2 === '-') return left - c;
+                        return left * c;
+                    }
+                    let result = a;
+                    if (o1 === '+') result += b; else result -= b;
+                    if (o2 === '+') result += c; else result -= c;
+                    return result;
+                };
+
+                const target = evaluate(op1, op2);
+
+                const equationText = this.add.text(width / 2, height / 2 - 60, `${a}  __  ${b}  __  ${c}  =  ${target}`, {
+                    fontSize: '36px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5);
+                problemElements.push(equationText);
+                stageElements.push(equationText);
+
+                let chosenOp1 = null;
+                let chosenOp2 = null;
+                let slot = 1; // which slot to fill next
+
+                const slotText = this.add.text(width / 2, height / 2 - 20, 'Choose operator for slot 1', {
+                    fontSize: '18px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffdd44',
+                }).setOrigin(0.5);
+                problemElements.push(slotText);
+                stageElements.push(slotText);
+
+                const opLabels = ['+', '-', '*'];
+                const btnWidth = 80;
+                const btnSpacing = 100;
+                const bStartX = width / 2 - btnSpacing;
+                const btnY = height / 2 + 40;
+
+                const opButtons = [];
+                opLabels.forEach((opLabel, i) => {
+                    const bx = bStartX + i * btnSpacing;
+                    const bg = this.add.rectangle(bx, btnY, btnWidth, 50, 0x4a4a8a)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(bx, btnY, opLabel, {
+                        fontSize: '28px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    problemElements.push(bg, txt);
+                    stageElements.push(bg, txt);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x6a6aaa));
+                    bg.on('pointerout', () => bg.setFillStyle(0x4a4a8a));
+
+                    bg.on('pointerdown', () => {
+                        if (slot === 1) {
+                            chosenOp1 = opLabel;
+                            equationText.setText(`${a}  ${chosenOp1}  ${b}  __  ${c}  =  ${target}`);
+                            slotText.setText('Choose operator for slot 2');
+                            slot = 2;
+                        } else {
+                            chosenOp2 = opLabel;
+                            equationText.setText(`${a}  ${chosenOp1}  ${b}  ${chosenOp2}  ${c}  =  ${target}`);
+
+                            const result = evaluate(chosenOp1, chosenOp2);
+                            if (result === target) {
+                                slotText.setText('Correct!');
+                                slotText.setColor('#44dd44');
+                                opButtons.forEach(ob => ob.bg.disableInteractive());
+
+                                currentProblem++;
+                                if (currentProblem >= totalProblems) {
+                                    this.time.delayedCall(600, () => advanceStage());
+                                } else {
+                                    this.time.delayedCall(600, () => showProblem());
+                                }
+                            } else {
+                                slotText.setText('Wrong! Try again from slot 1.');
+                                slotText.setColor('#ff4444');
+                                slot = 1;
+                                chosenOp1 = null;
+                                chosenOp2 = null;
+                                this.time.delayedCall(800, () => {
+                                    equationText.setText(`${a}  __  ${b}  __  ${c}  =  ${target}`);
+                                    slotText.setText('Choose operator for slot 1');
+                                    slotText.setColor('#ffdd44');
+                                });
+                            }
+                        }
+                    });
+
+                    opButtons.push({ bg, txt });
+                });
+            };
+
+            showProblem();
+        };
+
+        // ---- Level 99 Stage 8: Word Scramble cipher ----
+        const startL99Stage8 = () => {
+            const instrText = this.add.text(width / 2, 70, 'Stage 8: Decode the cipher! Unscramble the hidden word.', {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const words = ['ALGORITHM', 'PARADOX', 'SYMPHONY', 'CATALYST', 'LABYRINTH', 'SPECTRUM', 'VOLATILE', 'ENIGMATIC'];
+            const answer = Phaser.Utils.Array.GetRandom(words);
+
+            // Create a substitution cipher
+            const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const shuffled = Phaser.Utils.Array.Shuffle([...alphabet]);
+            const cipherMap = {};
+            const reverseMap = {};
+            for (let i = 0; i < 26; i++) {
+                cipherMap[alphabet[i]] = shuffled[i];
+                reverseMap[shuffled[i]] = alphabet[i];
+            }
+
+            const encoded = answer.split('').map(ch => cipherMap[ch]).join('');
+
+            const cipherText = this.add.text(width / 2, height / 2 - 80, `Cipher: ${encoded}`, {
+                fontSize: '32px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ff8844',
+            }).setOrigin(0.5);
+            stageElements.push(cipherText);
+
+            // Show a hint: partial mapping
+            const uniqueLetters = [...new Set(answer.split(''))];
+            const hintCount = Math.min(3, uniqueLetters.length);
+            const hintLetters = Phaser.Utils.Array.Shuffle([...uniqueLetters]).slice(0, hintCount);
+            let hintStr = 'Hints: ';
+            hintLetters.forEach(letter => {
+                hintStr += `${cipherMap[letter]}=${letter}  `;
+            });
+
+            const hintText = this.add.text(width / 2, height / 2 - 40, hintStr, {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(hintText);
+
+            const lengthHint = this.add.text(width / 2, height / 2 - 10, `Word length: ${answer.length}`, {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#888888',
+            }).setOrigin(0.5);
+            stageElements.push(lengthHint);
+
+            // Input area with letter buttons
+            let currentGuess = '';
+            const guessText = this.add.text(width / 2, height / 2 + 30, '_ '.repeat(answer.length).trim(), {
+                fontSize: '32px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(guessText);
+
+            const feedbackText = this.add.text(width / 2, height / 2 + 70, '', {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ff4444',
+            }).setOrigin(0.5);
+            stageElements.push(feedbackText);
+
+            // Letter buttons - 2 rows of 13
+            const letterBtnSize = 32;
+            const letterGap = 4;
+            const row1Letters = alphabet.slice(0, 13);
+            const row2Letters = alphabet.slice(13);
+
+            const makeLetterRow = (letters, rowY) => {
+                const totalW = letters.length * (letterBtnSize + letterGap) - letterGap;
+                const startX2 = (width - totalW) / 2 + letterBtnSize / 2;
+
+                [...letters].forEach((letter, i) => {
+                    const lx = startX2 + i * (letterBtnSize + letterGap);
+                    const bg = this.add.rectangle(lx, rowY, letterBtnSize, letterBtnSize, 0x3a3a6a)
+                        .setInteractive({ useHandCursor: true });
+                    const txt = this.add.text(lx, rowY, letter, {
+                        fontSize: '16px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    stageElements.push(bg, txt);
+
+                    bg.on('pointerover', () => bg.setFillStyle(0x5a5a9a));
+                    bg.on('pointerout', () => bg.setFillStyle(0x3a3a6a));
+
+                    bg.on('pointerdown', () => {
+                        if (currentGuess.length < answer.length) {
+                            currentGuess += letter;
+                            const display = currentGuess.split('').concat(Array(answer.length - currentGuess.length).fill('_')).join(' ');
+                            guessText.setText(display);
+
+                            if (currentGuess.length === answer.length) {
+                                if (currentGuess === answer) {
+                                    feedbackText.setText('Decoded!');
+                                    feedbackText.setColor('#44dd44');
+                                    this.time.delayedCall(500, () => advanceStage());
+                                } else {
+                                    feedbackText.setText('Wrong! Try again.');
+                                    feedbackText.setColor('#ff4444');
+                                    currentGuess = '';
+                                    this.time.delayedCall(800, () => {
+                                        guessText.setText('_ '.repeat(answer.length).trim());
+                                        feedbackText.setText('');
+                                    });
+                                }
+                            }
+                        }
+                    });
+                });
+            };
+
+            makeLetterRow(row1Letters, height / 2 + 120);
+            makeLetterRow(row2Letters, height / 2 + 160);
+
+            // Backspace button
+            const bsBg = this.add.rectangle(width / 2, height / 2 + 195, 100, 30, 0x5a3a3a)
+                .setInteractive({ useHandCursor: true });
+            const bsTxt = this.add.text(width / 2, height / 2 + 195, 'Delete', {
+                fontSize: '14px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+            stageElements.push(bsBg, bsTxt);
+
+            bsBg.on('pointerover', () => bsBg.setFillStyle(0x7a5a5a));
+            bsBg.on('pointerout', () => bsBg.setFillStyle(0x5a3a3a));
+            bsBg.on('pointerdown', () => {
+                if (currentGuess.length > 0) {
+                    currentGuess = currentGuess.slice(0, -1);
+                    const display = currentGuess.split('').concat(Array(answer.length - currentGuess.length).fill('_')).join(' ');
+                    guessText.setText(display);
+                }
+            });
+        };
+
+        // ---- Level 99 Stage 9: Jigsaw 5x5 with rotation ----
+        const startL99Stage9 = () => {
+            const jigsawSize = 5;
+            const totalPieces = jigsawSize * jigsawSize;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 9: Jigsaw! Drag pieces to correct spots. Click to rotate.', {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            const pieceSize = Math.min(55, Math.floor((width - 100) / (jigsawSize + 3)));
+            const gapSize = 4;
+            const gridTotalW = jigsawSize * (pieceSize + gapSize) - gapSize;
+            const gridTotalH = jigsawSize * (pieceSize + gapSize) - gapSize;
+            const gridOffX = 40 + pieceSize / 2;
+            const gridOffY = (height - gridTotalH) / 2 + pieceSize / 2;
+
+            // Target grid outlines
+            for (let r = 0; r < jigsawSize; r++) {
+                for (let c = 0; c < jigsawSize; c++) {
+                    const x = gridOffX + c * (pieceSize + gapSize);
+                    const y = gridOffY + r * (pieceSize + gapSize);
+                    const outline = this.add.rectangle(x, y, pieceSize, pieceSize, 0x1a1a3a).setStrokeStyle(1, 0x444466);
+                    stageElements.push(outline);
+
+                    const label = this.add.text(x, y, `${r * jigsawSize + c + 1}`, {
+                        fontSize: '12px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#333355',
+                    }).setOrigin(0.5);
+                    stageElements.push(label);
+                }
+            }
+
+            // Generate piece colors based on grid position
+            const pieceColors = [];
+            for (let r = 0; r < jigsawSize; r++) {
+                for (let c = 0; c < jigsawSize; c++) {
+                    const hue = ((r * jigsawSize + c) / totalPieces) * 360;
+                    const rgb = Phaser.Display.Color.HSLToColor(hue / 360, 0.6, 0.5);
+                    pieceColors.push(rgb.color);
+                }
+            }
+
+            // Pieces scattered on the right side
+            const pieces = [];
+            const scatterStartX = gridOffX + gridTotalW + 40;
+            const scatterW = width - scatterStartX - 30;
+
+            for (let i = 0; i < totalPieces; i++) {
+                const targetR = Math.floor(i / jigsawSize);
+                const targetC = i % jigsawSize;
+                const rotation = Phaser.Math.Between(0, 3) * 90; // 0, 90, 180, 270
+
+                const sx = scatterStartX + Math.random() * scatterW;
+                const sy = 100 + Math.random() * (height - 200);
+
+                const rect = this.add.rectangle(sx, sy, pieceSize - 4, pieceSize - 4, pieceColors[i])
+                    .setInteractive({ useHandCursor: true, draggable: true })
+                    .setAngle(rotation);
+                const label = this.add.text(sx, sy, `${i + 1}`, {
+                    fontSize: '14px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                }).setOrigin(0.5).setAngle(rotation);
+                stageElements.push(rect, label);
+
+                const piece = { rect, label, targetR, targetC, currentRotation: rotation, placed: false, id: i };
+                pieces.push(piece);
+
+                // Click to rotate
+                rect.on('pointerdown', (pointer) => {
+                    if (piece.placed) return;
+                    if (pointer.rightButtonDown()) return;
+                    // If not dragging far, rotate
+                    piece._clickX = pointer.x;
+                    piece._clickY = pointer.y;
+                });
+
+                rect.on('pointerup', (pointer) => {
+                    if (piece.placed) return;
+                    const dx = Math.abs(pointer.x - (piece._clickX || 0));
+                    const dy = Math.abs(pointer.y - (piece._clickY || 0));
+                    if (dx < 5 && dy < 5) {
+                        piece.currentRotation = (piece.currentRotation + 90) % 360;
+                        rect.setAngle(piece.currentRotation);
+                        label.setAngle(piece.currentRotation);
+                    }
+                });
+
+                this.input.setDraggable(rect);
+            }
+
+            this.input.on('drag', (pointer, gameObject, dragX, dragY) => {
+                const piece = pieces.find(p => p.rect === gameObject);
+                if (piece && !piece.placed) {
+                    gameObject.x = dragX;
+                    gameObject.y = dragY;
+                    piece.label.x = dragX;
+                    piece.label.y = dragY;
+                }
+            });
+
+            this.input.on('dragend', (pointer, gameObject) => {
+                const piece = pieces.find(p => p.rect === gameObject);
+                if (!piece || piece.placed) return;
+
+                const targetX = gridOffX + piece.targetC * (pieceSize + gapSize);
+                const targetY = gridOffY + piece.targetR * (pieceSize + gapSize);
+
+                if (Math.abs(gameObject.x - targetX) < pieceSize / 2 &&
+                    Math.abs(gameObject.y - targetY) < pieceSize / 2 &&
+                    piece.currentRotation % 360 === 0) {
+                    // Snap into place
+                    gameObject.x = targetX;
+                    gameObject.y = targetY;
+                    piece.label.x = targetX;
+                    piece.label.y = targetY;
+                    piece.placed = true;
+                    gameObject.disableInteractive();
+                    gameObject.setAlpha(0.7);
+
+                    // Check if all placed
+                    if (pieces.every(p => p.placed)) {
+                        this.time.delayedCall(300, () => advanceStage());
+                    }
+                }
+            });
+        };
+
+        // ---- Level 99 Stage 10: 25x25 Maze with fog, enemies, keys ----
+        const startL99Stage10 = () => {
+            const mazeW = 25, mazeH = 25, cellSize = 18;
+            const viewRadius = 3;
+            const numEnemies = 5;
+            const numKeys = 3;
+
+            const instrText = this.add.text(width / 2, 70, 'Stage 10: Escape! Collect all keys, avoid enemies in the fog!', {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#aaaaaa',
+            }).setOrigin(0.5);
+            stageElements.push(instrText);
+
+            // Generate maze
+            const maze = Array.from({ length: mazeH }, () => Array(mazeW).fill(1));
+
+            const carveMaze = (r, c) => {
+                maze[r][c] = 0;
+                const dirs = [[0, 2], [0, -2], [2, 0], [-2, 0]];
+                for (let i = dirs.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+                }
+                for (const [dr, dc] of dirs) {
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 1) {
+                        maze[r + dr / 2][c + dc / 2] = 0;
+                        carveMaze(nr, nc);
+                    }
+                }
+            };
+            carveMaze(0, 0);
+            maze[mazeH - 1][mazeW - 1] = 0;
+
+            const gridW2 = mazeW * cellSize;
+            const gridH2 = mazeH * cellSize;
+            const offsetX = (width - gridW2) / 2;
+            const offsetY = (height - gridH2) / 2 + 15;
+
+            // Collect open positions for keys/enemies
+            const openPositions = [];
+            for (let r = 0; r < mazeH; r++) {
+                for (let c = 0; c < mazeW; c++) {
+                    if (maze[r][c] === 0 && !(r === 0 && c === 0) && !(r === mazeH - 1 && c === mazeW - 1)) {
+                        openPositions.push({ r, c });
+                    }
+                }
+            }
+            Phaser.Utils.Array.Shuffle(openPositions);
+
+            // Place keys
+            const keyPositions = openPositions.splice(0, numKeys);
+            let keysCollected = 0;
+
+            const keyText = this.add.text(width / 2, 55, `Keys: 0/${numKeys}`, {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffdd44',
+            }).setOrigin(0.5);
+            stageElements.push(keyText);
+
+            // Place enemies
+            const enemies = [];
+            for (let e = 0; e < numEnemies; e++) {
+                const pos = openPositions[e];
+                if (pos) {
+                    enemies.push({ r: pos.r, c: pos.c });
+                }
+            }
+
+            let playerCol = 0;
+            let playerRow = 0;
+            let inputLocked = false;
+            let gameOver = false;
+
+            // Render elements
+            let mazeRects = [];
+            let keyRects = [];
+            let enemyRects = [];
+            let playerRect = null;
+            let exitRect = null;
+            let fogRects = [];
+
+            const renderMaze = () => {
+                mazeRects.forEach(r => { r.destroy(); stageElements = stageElements.filter(e => e !== r); });
+                keyRects.forEach(r => { r.destroy(); stageElements = stageElements.filter(e => e !== r); });
+                enemyRects.forEach(r => { r.destroy(); stageElements = stageElements.filter(e => e !== r); });
+                fogRects.forEach(r => { r.destroy(); stageElements = stageElements.filter(e => e !== r); });
+                if (playerRect) { playerRect.destroy(); stageElements = stageElements.filter(e => e !== playerRect); }
+                if (exitRect) { exitRect.destroy(); stageElements = stageElements.filter(e => e !== exitRect); }
+                mazeRects = [];
+                keyRects = [];
+                enemyRects = [];
+                fogRects = [];
+
+                for (let row = 0; row < mazeH; row++) {
+                    for (let col = 0; col < mazeW; col++) {
+                        const x = offsetX + col * cellSize + cellSize / 2;
+                        const y = offsetY + row * cellSize + cellSize / 2;
+                        const dist = Math.abs(row - playerRow) + Math.abs(col - playerCol);
+
+                        if (dist > viewRadius) {
+                            const fog = this.add.rectangle(x, y, cellSize, cellSize, 0x111122);
+                            stageElements.push(fog);
+                            fogRects.push(fog);
+                        } else {
+                            if (maze[row][col] === 1) {
+                                const wall = this.add.rectangle(x, y, cellSize - 1, cellSize - 1, 0x2a2a4a);
+                                stageElements.push(wall);
+                                mazeRects.push(wall);
+                            } else {
+                                const path = this.add.rectangle(x, y, cellSize - 1, cellSize - 1, 0x4a4a6a);
+                                stageElements.push(path);
+                                mazeRects.push(path);
+                            }
+                        }
+                    }
+                }
+
+                // Draw keys (visible in fog radius)
+                keyPositions.forEach((kp, idx) => {
+                    const dist = Math.abs(kp.r - playerRow) + Math.abs(kp.c - playerCol);
+                    if (dist <= viewRadius) {
+                        const kx = offsetX + kp.c * cellSize + cellSize / 2;
+                        const ky = offsetY + kp.r * cellSize + cellSize / 2;
+                        const keyDiamond = this.add.star(kx, ky, 4, 4, 8, 0xffdd44);
+                        stageElements.push(keyDiamond);
+                        keyRects.push(keyDiamond);
+                    }
+                });
+
+                // Draw enemies (visible in fog radius)
+                enemies.forEach(en => {
+                    const dist = Math.abs(en.r - playerRow) + Math.abs(en.c - playerCol);
+                    if (dist <= viewRadius) {
+                        const ex = offsetX + en.c * cellSize + cellSize / 2;
+                        const ey = offsetY + en.r * cellSize + cellSize / 2;
+                        const enemyCircle = this.add.circle(ex, ey, cellSize / 3, 0xff4444);
+                        stageElements.push(enemyCircle);
+                        enemyRects.push(enemyCircle);
+                    }
+                });
+
+                // Exit
+                const exitDist = Math.abs((mazeH - 1) - playerRow) + Math.abs((mazeW - 1) - playerCol);
+                if (exitDist <= viewRadius) {
+                    const exitX2 = offsetX + (mazeW - 1) * cellSize + cellSize / 2;
+                    const exitY2 = offsetY + (mazeH - 1) * cellSize + cellSize / 2;
+                    const exitColor = keysCollected >= numKeys ? 0x44ff44 : 0x884444;
+                    exitRect = this.add.star(exitX2, exitY2, 5, 5, 10, exitColor);
+                    stageElements.push(exitRect);
+                }
+
+                // Player
+                const px = offsetX + playerCol * cellSize + cellSize / 2;
+                const py = offsetY + playerRow * cellSize + cellSize / 2;
+                playerRect = this.add.circle(px, py, cellSize / 3, 0x44dd44);
+                stageElements.push(playerRect);
+            };
+
+            const moveEnemies = () => {
+                enemies.forEach(en => {
+                    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                    Phaser.Utils.Array.Shuffle(dirs);
+                    for (const [dr, dc] of dirs) {
+                        const nr = en.r + dr;
+                        const nc = en.c + dc;
+                        if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 0) {
+                            en.r = nr;
+                            en.c = nc;
+                            break;
+                        }
+                    }
+                });
+            };
+
+            const checkCollision = () => {
+                for (const en of enemies) {
+                    if (en.r === playerRow && en.c === playerCol) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            const movePlayer = (dCol, dRow) => {
+                if (inputLocked || gameOver) return;
+                const newCol = playerCol + dCol;
+                const newRow = playerRow + dRow;
+                if (newCol < 0 || newCol >= mazeW || newRow < 0 || newRow >= mazeH) return;
+                if (maze[newRow][newCol] === 1) return;
+
+                playerCol = newCol;
+                playerRow = newRow;
+
+                // Check keys
+                for (let ki = keyPositions.length - 1; ki >= 0; ki--) {
+                    if (keyPositions[ki].r === playerRow && keyPositions[ki].c === playerCol) {
+                        keyPositions.splice(ki, 1);
+                        keysCollected++;
+                        keyText.setText(`Keys: ${keysCollected}/${numKeys}`);
+                    }
+                }
+
+                // Move enemies every other player move
+                moveEnemies();
+
+                if (checkCollision()) {
+                    gameOver = true;
+                    inputLocked = true;
+                    renderMaze();
+                    const hitText = this.add.text(width / 2, height / 2, 'Caught! Restarting...', {
+                        fontSize: '24px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#ff4444',
+                    }).setOrigin(0.5);
+                    stageElements.push(hitText);
+                    this.time.delayedCall(1500, () => {
+                        clearStage();
+                        startL99Stage10();
+                    });
+                    return;
+                }
+
+                // Check exit
+                if (playerCol === mazeW - 1 && playerRow === mazeH - 1 && keysCollected >= numKeys) {
+                    inputLocked = true;
+                    playerRect && playerRect.setFillStyle(0xffdd44);
+                    this.time.delayedCall(500, () => advanceStage());
+                }
+
+                renderMaze();
+            };
+
+            this.input.keyboard.on('keydown-LEFT', () => movePlayer(-1, 0));
+            this.input.keyboard.on('keydown-RIGHT', () => movePlayer(1, 0));
+            this.input.keyboard.on('keydown-UP', () => movePlayer(0, -1));
+            this.input.keyboard.on('keydown-DOWN', () => movePlayer(0, 1));
+
+            renderMaze();
+        };
+
         // Build stage functions array based on level
         let stageFunctions;
-        if (this.level === 90) {
+        if (this.level === 99) {
+            stageFunctions = [startL99Stage1, startL99Stage2, startL99Stage3, startL99Stage4, startL99Stage5, startL99Stage6, startL99Stage7, startL99Stage8, startL99Stage9, startL99Stage10];
+        } else if (this.level === 90) {
             stageFunctions = [startL90Stage1, startL90Stage2, startL90Stage3, startL90Stage4, startL90Stage5, startL90Stage6, startL90Stage7, startL90Stage8];
         } else if (this.level === 80) {
             stageFunctions = [startL80Stage1, startL80Stage2, startL80Stage3, startL80Stage4, startL80Stage5, startL80Stage6];
