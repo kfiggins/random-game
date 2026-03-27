@@ -27,6 +27,7 @@ const LevelRegistry = {
     20: { type: 'light-toggle', config: { size: 3, randomize: true } },
     21: { type: 'memory-cards', config: { rows: 4, cols: 4, timeLimit: 45 } },
     22: { type: 'color-chain', config: { gridSize: 5, colors: 3 } },
+    23: { type: 'simon-says', config: { sequenceLength: 7, colors: 4, playbackSpeed: 500 } },
 };
 
 // ============================================================
