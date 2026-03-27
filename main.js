@@ -20,6 +20,7 @@ const LevelRegistry = {
     13: { type: 'simon-says', config: { sequenceLength: 5, colors: 4, playbackSpeed: 600 } },
     14: { type: 'sliding-puzzle', config: { size: 3 } },
     15: { type: 'maze', config: { width: 11, height: 11, cellSize: 45 } },
+    16: { type: 'sequence-logic', config: { sequenceLength: 5, numChoices: 4 } },
 };
 
 // ============================================================
@@ -211,6 +212,8 @@ class GameScene extends Phaser.Scene {
             this.createSpotDifferencePuzzle(levelData.config);
         } else if (levelData && levelData.type === 'sliding-puzzle') {
             this.createSlidingPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'sequence-logic') {
+            this.createSequenceLogicPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -1868,6 +1871,147 @@ class GameScene extends Phaser.Scene {
         bg.on('pointerdown', callback);
 
         return bg;
+    }
+
+    createSequenceLogicPuzzle(config) {
+        const { width, height } = this.scale;
+        const { sequenceLength, numChoices } = config;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Find the rule! What comes next?', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Predefined sequences with clear single rules
+        const sequenceDefs = [
+            // Add constant
+            { rule: 'add 2', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 2 + i * 2) },
+            { rule: 'add 3', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 3 + i * 3) },
+            { rule: 'add 5', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 5 + i * 5) },
+            { rule: 'add 4', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 1 + i * 4) },
+            { rule: 'add 7', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 7 + i * 7) },
+            { rule: 'add 6', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 3 + i * 6) },
+            // Multiply by constant
+            { rule: 'multiply 2', gen: (n) => Array.from({ length: n + 1 }, (_, i) => Math.pow(2, i + 1)) },
+            { rule: 'multiply 3', gen: (n) => Array.from({ length: n + 1 }, (_, i) => Math.pow(3, i)) },
+            // Simple arithmetic sequences
+            { rule: 'squares', gen: (n) => Array.from({ length: n + 1 }, (_, i) => (i + 1) * (i + 1)) },
+            { rule: 'triangular', gen: (n) => Array.from({ length: n + 1 }, (_, i) => ((i + 1) * (i + 2)) / 2) },
+            { rule: 'odd numbers', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 1 + i * 2) },
+            { rule: 'even numbers', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 2 + i * 2) },
+            { rule: 'add increasing', gen: (n) => { const s = [1]; for (let i = 1; i <= n; i++) s.push(s[i - 1] + i + 1); return s; } },
+        ];
+
+        // Pick a random sequence
+        const seqDef = Phaser.Utils.Array.GetRandom(sequenceDefs);
+        const fullSequence = seqDef.gen(sequenceLength);
+        const displayed = fullSequence.slice(0, sequenceLength);
+        const correctAnswer = fullSequence[sequenceLength];
+
+        // Display the sequence with a '?' at the end
+        const seqY = height / 2 - 60;
+        const items = [...displayed.map(String), '?'];
+        const itemSpacing = 80;
+        const totalW = items.length * itemSpacing;
+        const startX = (width - totalW) / 2 + itemSpacing / 2;
+
+        items.forEach((item, i) => {
+            const x = startX + i * itemSpacing;
+            const isQuestion = item === '?';
+
+            // Background box
+            this.add.rectangle(x, seqY, 60, 60, isQuestion ? 0x3a3a6a : 0x2a2a4a)
+                .setStrokeStyle(2, isQuestion ? 0x6a6aaa : 0x4a4a6a);
+
+            this.add.text(x, seqY, item, {
+                fontSize: isQuestion ? '32px' : '24px',
+                fontFamily: 'Arial, sans-serif',
+                color: isQuestion ? '#888888' : '#ffffff',
+            }).setOrigin(0.5);
+        });
+
+        // Generate wrong answers that are distinct from correct answer
+        const wrongAnswers = new Set();
+        const offsets = [-3, -2, -1, 1, 2, 3, 5, -5, 4, -4];
+        let oi = 0;
+        while (wrongAnswers.size < numChoices - 1 && oi < offsets.length) {
+            const wrong = correctAnswer + offsets[oi];
+            if (wrong !== correctAnswer && wrong > 0) {
+                wrongAnswers.add(wrong);
+            }
+            oi++;
+        }
+
+        const choices = [correctAnswer, ...wrongAnswers];
+        Phaser.Utils.Array.Shuffle(choices);
+
+        // Draw choice buttons
+        const choiceY = height / 2 + 60;
+        const choicePadding = 30;
+        const choiceW = 80;
+        const choiceTotalW = numChoices * choiceW + (numChoices - 1) * choicePadding;
+        const choiceStartX = (width - choiceTotalW) / 2 + choiceW / 2;
+
+        const feedbackText = this.add.text(width / 2, choiceY + 70, '', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        let solved = false;
+
+        choices.forEach((value, i) => {
+            const cx = choiceStartX + i * (choiceW + choicePadding);
+
+            const bg = this.add.rectangle(cx, choiceY, choiceW, 50, 0x2a2a4a)
+                .setStrokeStyle(2, 0x4a4a6a)
+                .setInteractive({ useHandCursor: true });
+
+            this.add.text(cx, choiceY, String(value), {
+                fontSize: '24px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => {
+                if (!solved) bg.setFillStyle(0x4a4a6a);
+            });
+            bg.on('pointerout', () => {
+                if (!solved) bg.setFillStyle(0x2a2a4a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (solved) return;
+
+                if (value === correctAnswer) {
+                    solved = true;
+                    feedbackText.setText('Correct!').setColor('#44dd44');
+
+                    // Replace the '?' with the correct answer
+                    const lastX = startX + (items.length - 1) * itemSpacing;
+                    this.add.rectangle(lastX, seqY, 60, 60, 0x2a6a2a)
+                        .setStrokeStyle(2, 0x44dd44);
+                    this.add.text(lastX, seqY, String(correctAnswer), {
+                        fontSize: '24px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#44dd44',
+                    }).setOrigin(0.5);
+
+                    this.time.delayedCall(500, () => {
+                        this.scene.start('LevelCompleteScene', { level: this.level });
+                    });
+                } else {
+                    // Wrong - flash red
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Try again.');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x2a2a4a);
+                    });
+                }
+            });
+        });
     }
 }
 
