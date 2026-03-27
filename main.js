@@ -104,6 +104,7 @@ const LevelRegistry = {
     97: { type: 'sorting', config: { count: 20, maxValue: 1000, mode: 'quantum', timeLimit: 90 } },
     98: { type: 'word-scramble', config: { mode: 'polyglot', languages: 3, wordsPerLang: 2, timeLimit: 120 } },
     99: { type: 'multi-puzzle', config: { stages: 10, timeLimit: 360 } },
+    100: { type: 'final-boss', config: { timeLimit: 600 } },
 };
 
 // ============================================================
@@ -307,6 +308,8 @@ class GameScene extends Phaser.Scene {
             this.createJigsawPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'multi-puzzle') {
             this.createMultiPuzzleBoss(levelData.config);
+        } else if (levelData && levelData.type === 'final-boss') {
+            this.createFinalBossPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -11693,6 +11696,1104 @@ class GameScene extends Phaser.Scene {
         stageFunctions[0]();
     }
 
+    createFinalBossPuzzle(config) {
+        const { width, height } = this.scale;
+        const { timeLimit } = config;
+        const startTime = Date.now();
+
+        const phaseNames = ['The Mind', 'The Eye', 'The Hand', 'The Brain', 'The Labyrinth'];
+        let currentPhase = 0;
+        let timeLeft = timeLimit;
+        let phaseElements = [];
+        let phaseCleanupFn = null;
+        let bossTimerEvent = null;
+
+        // === UI: Phase progress, phase timer, overall timer ===
+        const overallTimerText = this.add.text(width - 20, 15, `Total: ${this.formatTime(timeLeft)}`, {
+            fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+        }).setOrigin(1, 0.5).setDepth(100);
+
+        const phaseTimerText = this.add.text(width - 20, 38, '', {
+            fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#cccccc',
+        }).setOrigin(1, 0.5).setDepth(100);
+
+        const phaseText = this.add.text(20, 15, `Phase 1/5 - ${phaseNames[0]}`, {
+            fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#ff4444',
+        }).setOrigin(0, 0.5).setDepth(100);
+
+        const bossTitle = this.add.text(width / 2, 15, 'THE IMPOSSIBLE GAUNTLET', {
+            fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#ffdd44',
+        }).setOrigin(0.5, 0.5).setDepth(100);
+
+        // Overall timer
+        bossTimerEvent = this.time.addEvent({
+            delay: 1000, loop: true,
+            callback: () => {
+                timeLeft--;
+                overallTimerText.setText(`Total: ${this.formatTime(timeLeft)}`);
+                if (timeLeft <= 30) overallTimerText.setColor('#ff4444');
+                if (timeLeft <= 0) {
+                    bossTimerEvent.remove(false);
+                    if (phaseCleanupFn) phaseCleanupFn();
+                    this.finalBossCleanup = null;
+                    this.handleTimeUp();
+                }
+            },
+        });
+
+        this.finalBossCleanup = () => {
+            bossTimerEvent.remove(false);
+            if (phaseCleanupFn) phaseCleanupFn();
+        };
+
+        const clearPhase = () => {
+            if (phaseCleanupFn) { phaseCleanupFn(); phaseCleanupFn = null; }
+            phaseElements.forEach(el => { if (el && el.destroy) el.destroy(); });
+            phaseElements = [];
+            this.input.keyboard.removeAllListeners();
+        };
+
+        const failBoss = () => {
+            clearPhase();
+            const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.8).setDepth(200);
+            const failText = this.add.text(width / 2, height / 2 - 40, 'PHASE FAILED', {
+                fontSize: '40px', fontFamily: 'Arial, sans-serif', color: '#ff4444',
+            }).setOrigin(0.5).setDepth(200);
+            const restartText = this.add.text(width / 2, height / 2 + 10, 'Restarting from Phase 1...', {
+                fontSize: '20px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5).setDepth(200);
+            this.time.delayedCall(2000, () => {
+                overlay.destroy(); failText.destroy(); restartText.destroy();
+                currentPhase = 0;
+                phaseText.setText(`Phase 1/5 - ${phaseNames[0]}`);
+                phaseTimerText.setText('');
+                startPhase();
+            });
+        };
+
+        const showPhaseComplete = (callback) => {
+            clearPhase();
+            const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7).setDepth(200);
+            const completeText = this.add.text(width / 2, height / 2 - 20, 'PHASE COMPLETE', {
+                fontSize: '44px', fontFamily: 'Arial, sans-serif', color: '#44ff44',
+            }).setOrigin(0.5).setDepth(200);
+            const nameText = this.add.text(width / 2, height / 2 + 30, `${phaseNames[currentPhase]} conquered!`, {
+                fontSize: '20px', fontFamily: 'Arial, sans-serif', color: '#88ff88',
+            }).setOrigin(0.5).setDepth(200);
+            this.time.delayedCall(2000, () => {
+                overlay.destroy(); completeText.destroy(); nameText.destroy();
+                callback();
+            });
+        };
+
+        const advancePhase = () => {
+            showPhaseComplete(() => {
+                currentPhase++;
+                if (currentPhase >= 5) {
+                    bossTimerEvent.remove(false);
+                    this.finalBossCleanup = null;
+                    showVictory();
+                    return;
+                }
+                phaseText.setText(`Phase ${currentPhase + 1}/5 - ${phaseNames[currentPhase]}`);
+                phaseTimerText.setText('');
+                startPhase();
+            });
+        };
+
+        // === Victory Screen with fireworks ===
+        const showVictory = () => {
+            clearPhase();
+            // Hide HUD
+            overallTimerText.setVisible(false);
+            phaseTimerText.setVisible(false);
+            phaseText.setVisible(false);
+            bossTitle.setVisible(false);
+
+            // Hide the level title and back button
+            this.children.list.forEach(child => {
+                if (child.input) child.disableInteractive();
+            });
+
+            const totalTime = Math.floor((Date.now() - startTime) / 1000);
+            const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.9).setDepth(200);
+
+            const victoryText = this.add.text(width / 2, 120, 'YOU BEAT THE GAME!', {
+                fontSize: '48px', fontFamily: 'Arial, sans-serif', color: '#ffdd44',
+            }).setOrigin(0.5).setDepth(300);
+
+            const subText = this.add.text(width / 2, 180, 'The Impossible Gauntlet - CONQUERED', {
+                fontSize: '22px', fontFamily: 'Arial, sans-serif', color: '#44ff44',
+            }).setOrigin(0.5).setDepth(300);
+
+            const timeText = this.add.text(width / 2, 230, `Total Time: ${this.formatTime(totalTime)}`, {
+                fontSize: '24px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+            }).setOrigin(0.5).setDepth(300);
+
+            const phaseList = this.add.text(width / 2, 290, '✦ The Mind  ✦ The Eye  ✦ The Hand  ✦ The Brain  ✦ The Labyrinth ✦', {
+                fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#88aaff',
+            }).setOrigin(0.5).setDepth(300);
+
+            // Fireworks effect - particle-like circles bursting outward
+            const fireworkColors = [0xff4444, 0x44ff44, 0x4488ff, 0xffdd44, 0xff44ff, 0x44ffff, 0xff8844, 0xffffff];
+            const launchFirework = () => {
+                const fx = Phaser.Math.Between(100, width - 100);
+                const fy = Phaser.Math.Between(100, 300);
+                const color = Phaser.Utils.Array.GetRandom(fireworkColors);
+                const particleCount = Phaser.Math.Between(15, 25);
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = (Math.PI * 2 * i) / particleCount + Phaser.Math.FloatBetween(-0.2, 0.2);
+                    const speed = Phaser.Math.Between(60, 160);
+                    const size = Phaser.Math.Between(2, 5);
+                    const p = this.add.circle(fx, fy, size, color).setDepth(350).setAlpha(1);
+                    this.tweens.add({
+                        targets: p,
+                        x: fx + Math.cos(angle) * speed,
+                        y: fy + Math.sin(angle) * speed,
+                        alpha: 0,
+                        scaleX: 0.2,
+                        scaleY: 0.2,
+                        duration: Phaser.Math.Between(600, 1200),
+                        ease: 'Power2',
+                        onComplete: () => p.destroy(),
+                    });
+                }
+            };
+
+            // Launch fireworks repeatedly
+            const fwEvent = this.time.addEvent({
+                delay: 400, loop: true, callback: launchFirework,
+            });
+            launchFirework();
+
+            // Menu button after delay
+            this.time.delayedCall(2000, () => {
+                const menuBtn = this.add.rectangle(width / 2, height - 80, 260, 50, 0x4a4a8a)
+                    .setInteractive({ useHandCursor: true }).setDepth(300);
+                const menuLabel = this.add.text(width / 2, height - 80, 'Back to Menu', {
+                    fontSize: '22px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                }).setOrigin(0.5).setDepth(300);
+                menuBtn.on('pointerover', () => menuBtn.setFillStyle(0x6a6aaa));
+                menuBtn.on('pointerout', () => menuBtn.setFillStyle(0x4a4a8a));
+                menuBtn.on('pointerdown', () => {
+                    fwEvent.remove(false);
+                    this.scene.start('MenuScene');
+                });
+            });
+        };
+
+        // === PHASE 1: The Mind - Simon Says ===
+        const startPhase1 = () => {
+            const seqLength = 20;
+            const numColors = 8;
+            const playbackSpeed = 250;
+            const colors = [
+                { name: 'Red', hex: 0xff4444, dim: 0x661111 },
+                { name: 'Blue', hex: 0x4488ff, dim: 0x112244 },
+                { name: 'Green', hex: 0x44dd44, dim: 0x114411 },
+                { name: 'Yellow', hex: 0xffdd44, dim: 0x443311 },
+                { name: 'Purple', hex: 0xaa44ff, dim: 0x331155 },
+                { name: 'Orange', hex: 0xff8844, dim: 0x442211 },
+                { name: 'Cyan', hex: 0x44dddd, dim: 0x114444 },
+                { name: 'Pink', hex: 0xff44aa, dim: 0x441133 },
+            ].slice(0, numColors);
+
+            const instrText = this.add.text(width / 2, 60, 'Watch the sequence. One chance. No replay.', {
+                fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5);
+            phaseElements.push(instrText);
+
+            // Build sequence
+            const sequence = [];
+            for (let i = 0; i < seqLength; i++) {
+                sequence.push(Phaser.Math.Between(0, numColors - 1));
+            }
+
+            // Create color buttons in 2 rows of 4
+            const btnSize = 65;
+            const padding = 10;
+            const buttons = [];
+            for (let i = 0; i < numColors; i++) {
+                const col = i % 4;
+                const row = Math.floor(i / 4);
+                const bx = width / 2 - (1.5 * (btnSize + padding)) + col * (btnSize + padding);
+                const by = 280 + row * (btnSize + padding);
+                const btn = this.add.rectangle(bx, by, btnSize, btnSize, colors[i].dim)
+                    .setInteractive({ useHandCursor: true });
+                const lbl = this.add.text(bx, by, colors[i].name.substring(0, 3), {
+                    fontSize: '12px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                }).setOrigin(0.5);
+                btn.setData('colorIndex', i);
+                buttons.push(btn);
+                phaseElements.push(btn, lbl);
+            }
+
+            const statusText = this.add.text(width / 2, 200, 'Watch carefully...', {
+                fontSize: '20px', fontFamily: 'Arial, sans-serif', color: '#ffdd44',
+            }).setOrigin(0.5);
+            phaseElements.push(statusText);
+
+            const progressText = this.add.text(width / 2, 230, '', {
+                fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#888888',
+            }).setOrigin(0.5);
+            phaseElements.push(progressText);
+
+            // Disable buttons during playback
+            buttons.forEach(b => b.disableInteractive());
+
+            // Playback sequence with decoy flashes
+            let playIndex = 0;
+            const playNext = () => {
+                if (playIndex >= seqLength) {
+                    // Done playing, enable input
+                    statusText.setText('Your turn! Repeat the sequence.');
+                    progressText.setText(`0 / ${seqLength}`);
+                    buttons.forEach(b => b.setInteractive({ useHandCursor: true }));
+                    return;
+                }
+                const ci = sequence[playIndex];
+                const btn = buttons[ci];
+                btn.setFillStyle(colors[ci].hex);
+                progressText.setText(`${playIndex + 1} / ${seqLength}`);
+
+                // Decoy flash - random other button flickers briefly during playback
+                if (playIndex > 3 && Math.random() < 0.3) {
+                    let decoyIdx;
+                    do { decoyIdx = Phaser.Math.Between(0, numColors - 1); } while (decoyIdx === ci);
+                    const decoyBtn = buttons[decoyIdx];
+                    this.time.delayedCall(playbackSpeed * 0.3, () => {
+                        decoyBtn.setFillStyle(Phaser.Display.Color.IntegerToColor(colors[decoyIdx].hex).brighten(30).color);
+                        this.time.delayedCall(80, () => {
+                            decoyBtn.setFillStyle(colors[decoyIdx].dim);
+                        });
+                    });
+                }
+
+                this.time.delayedCall(playbackSpeed * 0.7, () => {
+                    btn.setFillStyle(colors[ci].dim);
+                    this.time.delayedCall(playbackSpeed * 0.3, () => {
+                        playIndex++;
+                        playNext();
+                    });
+                });
+            };
+
+            this.time.delayedCall(1000, playNext);
+
+            // Player input
+            let inputIndex = 0;
+            buttons.forEach(btn => {
+                btn.on('pointerdown', () => {
+                    const ci = btn.getData('colorIndex');
+                    btn.setFillStyle(colors[ci].hex);
+                    this.time.delayedCall(200, () => btn.setFillStyle(colors[ci].dim));
+
+                    if (ci === sequence[inputIndex]) {
+                        inputIndex++;
+                        progressText.setText(`${inputIndex} / ${seqLength}`);
+                        if (inputIndex >= seqLength) {
+                            buttons.forEach(b => b.disableInteractive());
+                            statusText.setText('Perfect!').setColor('#44ff44');
+                            this.time.delayedCall(500, advancePhase);
+                        }
+                    } else {
+                        buttons.forEach(b => b.disableInteractive());
+                        statusText.setText('Wrong!').setColor('#ff4444');
+                        this.time.delayedCall(1000, failBoss);
+                    }
+                });
+            });
+        };
+
+        // === PHASE 2: The Eye - Spot Difference + Memory ===
+        const startPhase2 = () => {
+            const gridSize = 8;
+            const numDiffs = 6;
+            const showTime = 10000;
+            const cellSize = Math.floor(Math.min((width / 2 - 60) / gridSize, (height - 140) / gridSize));
+            const gridPixelW = gridSize * cellSize;
+            const leftStartX = (width / 2 - gridPixelW) / 2;
+            const rightStartX = width / 2 + (width / 2 - gridPixelW) / 2;
+            const startY = 80;
+
+            const instrText = this.add.text(width / 2, 58, 'Study BOTH grids. Find the 6 differences from MEMORY!', {
+                fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5);
+            phaseElements.push(instrText);
+
+            const leftLabel = this.add.text(leftStartX + gridPixelW / 2, startY - 12, 'ORIGINAL', {
+                fontSize: '12px', fontFamily: 'Arial, sans-serif', color: '#88ff88',
+            }).setOrigin(0.5);
+            phaseElements.push(leftLabel);
+
+            const rightLabel = this.add.text(rightStartX + gridPixelW / 2, startY - 12, 'CHANGED', {
+                fontSize: '12px', fontFamily: 'Arial, sans-serif', color: '#ff8888',
+            }).setOrigin(0.5);
+            phaseElements.push(rightLabel);
+
+            // Generate base grid colors (subtle palette)
+            const palette = [0x334455, 0x445566, 0x335544, 0x554433, 0x443355, 0x553344, 0x344553, 0x454535];
+            const baseGrid = [];
+            for (let r = 0; r < gridSize; r++) {
+                baseGrid[r] = [];
+                for (let c = 0; c < gridSize; c++) {
+                    baseGrid[r][c] = Phaser.Utils.Array.GetRandom(palette);
+                }
+            }
+
+            // Pick difference positions
+            const allPositions = [];
+            for (let r = 0; r < gridSize; r++) {
+                for (let c = 0; c < gridSize; c++) {
+                    allPositions.push({ r, c });
+                }
+            }
+            Phaser.Utils.Array.Shuffle(allPositions);
+            const diffPositions = allPositions.slice(0, numDiffs);
+            const diffSet = new Set(diffPositions.map(p => `${p.r},${p.c}`));
+
+            // Create changed grid (subtle changes)
+            const changedGrid = baseGrid.map(row => [...row]);
+            diffPositions.forEach(({ r, c }) => {
+                let newColor;
+                do {
+                    newColor = Phaser.Utils.Array.GetRandom(palette);
+                } while (newColor === baseGrid[r][c]);
+                changedGrid[r][c] = newColor;
+            });
+
+            // Draw both grids
+            const leftCells = [];
+            const rightCells = [];
+            for (let r = 0; r < gridSize; r++) {
+                for (let c = 0; c < gridSize; c++) {
+                    const lx = leftStartX + c * cellSize + cellSize / 2;
+                    const ly = startY + r * cellSize + cellSize / 2;
+                    const lCell = this.add.rectangle(lx, ly, cellSize - 2, cellSize - 2, baseGrid[r][c]);
+                    phaseElements.push(lCell);
+                    leftCells.push(lCell);
+
+                    const rx = rightStartX + c * cellSize + cellSize / 2;
+                    const ry = startY + r * cellSize + cellSize / 2;
+                    const rCell = this.add.rectangle(rx, ry, cellSize - 2, cellSize - 2, changedGrid[r][c]);
+                    phaseElements.push(rCell);
+                    rightCells.push({ rect: rCell, r, c });
+                }
+            }
+
+            // Countdown for viewing phase
+            let viewTimeLeft = Math.floor(showTime / 1000);
+            const countdownText = this.add.text(width / 2, height - 40, `Memorize! Hiding in ${viewTimeLeft}s`, {
+                fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#ffdd44',
+            }).setOrigin(0.5);
+            phaseElements.push(countdownText);
+
+            const countdownEvent = this.time.addEvent({
+                delay: 1000, repeat: viewTimeLeft - 1,
+                callback: () => {
+                    viewTimeLeft--;
+                    countdownText.setText(`Memorize! Hiding in ${viewTimeLeft}s`);
+                },
+            });
+
+            phaseCleanupFn = () => { countdownEvent.remove(false); };
+
+            // After showTime, hide the right grid and enable clicking
+            this.time.delayedCall(showTime, () => {
+                countdownEvent.remove(false);
+                phaseCleanupFn = null;
+
+                // Cover right grid cells
+                const coverCells = [];
+                for (let r = 0; r < gridSize; r++) {
+                    for (let c = 0; c < gridSize; c++) {
+                        const rx = rightStartX + c * cellSize + cellSize / 2;
+                        const ry = startY + r * cellSize + cellSize / 2;
+                        const cover = this.add.rectangle(rx, ry, cellSize - 2, cellSize - 2, 0x222233)
+                            .setInteractive({ useHandCursor: true });
+                        cover.setData('r', r);
+                        cover.setData('c', c);
+                        coverCells.push(cover);
+                        phaseElements.push(cover);
+                    }
+                }
+
+                rightLabel.setText('HIDDEN - Click where differences were');
+                countdownText.setText('Click the 6 cells where differences were');
+
+                let found = 0;
+                let mistakes = 0;
+                const maxMistakes = 3;
+
+                const mistakeText = this.add.text(width / 2, height - 60, `Mistakes: ${mistakes}/${maxMistakes}`, {
+                    fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+                }).setOrigin(0.5);
+                phaseElements.push(mistakeText);
+
+                coverCells.forEach(cover => {
+                    cover.on('pointerdown', () => {
+                        const cr = cover.getData('r');
+                        const cc = cover.getData('c');
+                        cover.disableInteractive();
+
+                        if (diffSet.has(`${cr},${cc}`)) {
+                            cover.setFillStyle(0x44ff44);
+                            found++;
+                            countdownText.setText(`Found ${found}/${numDiffs}`);
+                            if (found >= numDiffs) {
+                                coverCells.forEach(cv => cv.disableInteractive());
+                                countdownText.setText('All found!').setColor('#44ff44');
+                                this.time.delayedCall(500, advancePhase);
+                            }
+                        } else {
+                            cover.setFillStyle(0xff4444);
+                            mistakes++;
+                            mistakeText.setText(`Mistakes: ${mistakes}/${maxMistakes}`);
+                            if (mistakes >= maxMistakes) {
+                                coverCells.forEach(cv => cv.disableInteractive());
+                                countdownText.setText('Too many mistakes!').setColor('#ff4444');
+                                this.time.delayedCall(1000, failBoss);
+                            }
+                        }
+                    });
+                });
+            });
+        };
+
+        // === PHASE 3: The Hand - 5x5 Sliding Puzzle with Color Shift ===
+        const startPhase3 = () => {
+            const size = 5;
+            const subTimeLimit = 60;
+            let subTimeLeft = subTimeLimit;
+            const totalTiles = size * size;
+
+            const instrText = this.add.text(width / 2, 58, 'Solve the sliding puzzle before colors fade!', {
+                fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5);
+            phaseElements.push(instrText);
+
+            phaseTimerText.setText(`Phase: ${subTimeLeft}s`);
+
+            // Generate tile colors (distinct, will shift over time)
+            const baseTileColors = [];
+            for (let i = 0; i < totalTiles - 1; i++) {
+                const hue = (i / (totalTiles - 1)) * 360;
+                const color = Phaser.Display.Color.HSLToColor(hue / 360, 0.7, 0.5);
+                baseTileColors.push(color.color);
+            }
+
+            // Create solved state (1..24, 0 for empty)
+            const solved = [];
+            for (let i = 1; i < totalTiles; i++) solved.push(i);
+            solved.push(0);
+
+            // Shuffle by making random valid moves
+            const tiles = [...solved];
+            let emptyIdx = totalTiles - 1;
+            const getNeighbors = (idx) => {
+                const r = Math.floor(idx / size), c = idx % size;
+                const n = [];
+                if (r > 0) n.push(idx - size);
+                if (r < size - 1) n.push(idx + size);
+                if (c > 0) n.push(idx - 1);
+                if (c < size - 1) n.push(idx + 1);
+                return n;
+            };
+            for (let i = 0; i < 500; i++) {
+                const neighbors = getNeighbors(emptyIdx);
+                const swapIdx = Phaser.Utils.Array.GetRandom(neighbors);
+                tiles[emptyIdx] = tiles[swapIdx];
+                tiles[swapIdx] = 0;
+                emptyIdx = swapIdx;
+            }
+
+            const tileSize = Math.floor(Math.min((width - 80) / size, (height - 180) / size));
+            const gridW = size * tileSize;
+            const gridH = size * tileSize;
+            const offsetX = (width - gridW) / 2;
+            const offsetY = 90;
+
+            const tileRects = [];
+            const tileLabels = [];
+
+            const drawTiles = () => {
+                tileRects.forEach(t => t.destroy());
+                tileLabels.forEach(t => t.destroy());
+                tileRects.length = 0;
+                tileLabels.length = 0;
+
+                for (let i = 0; i < totalTiles; i++) {
+                    const val = tiles[i];
+                    if (val === 0) continue;
+                    const r = Math.floor(i / size), c = i % size;
+                    const tx = offsetX + c * tileSize + tileSize / 2;
+                    const ty = offsetY + r * tileSize + tileSize / 2;
+
+                    const colorShift = Math.max(0, 1 - (subTimeLimit - subTimeLeft) / subTimeLimit * 0.8);
+                    const baseColor = Phaser.Display.Color.IntegerToColor(baseTileColors[val - 1]);
+                    const shifted = Phaser.Display.Color.ObjectToColor({
+                        r: Math.floor(baseColor.red * colorShift + 40 * (1 - colorShift)),
+                        g: Math.floor(baseColor.green * colorShift + 40 * (1 - colorShift)),
+                        b: Math.floor(baseColor.blue * colorShift + 40 * (1 - colorShift)),
+                    });
+
+                    const rect = this.add.rectangle(tx, ty, tileSize - 4, tileSize - 4, shifted.color)
+                        .setInteractive({ useHandCursor: true });
+                    rect.setData('index', i);
+                    const lbl = this.add.text(tx, ty, `${val}`, {
+                        fontSize: `${Math.floor(tileSize * 0.35)}px`, fontFamily: 'Arial, sans-serif',
+                        color: '#ffffff',
+                    }).setOrigin(0.5);
+                    lbl.setAlpha(Math.max(0.2, colorShift));
+
+                    rect.on('pointerdown', () => {
+                        const idx = rect.getData('index');
+                        const neighbors = getNeighbors(idx);
+                        if (neighbors.includes(emptyIdx)) {
+                            tiles[emptyIdx] = tiles[idx];
+                            tiles[idx] = 0;
+                            emptyIdx = idx;
+                            drawTiles();
+
+                            // Check win
+                            let won = true;
+                            for (let j = 0; j < totalTiles - 1; j++) {
+                                if (tiles[j] !== j + 1) { won = false; break; }
+                            }
+                            if (won) {
+                                if (subTimer) subTimer.remove(false);
+                                phaseCleanupFn = null;
+                                instrText.setText('Solved!').setColor('#44ff44');
+                                this.time.delayedCall(500, advancePhase);
+                            }
+                        }
+                    });
+
+                    tileRects.push(rect);
+                    tileLabels.push(lbl);
+                    phaseElements.push(rect, lbl);
+                }
+            };
+
+            drawTiles();
+
+            const subTimer = this.time.addEvent({
+                delay: 1000, loop: true,
+                callback: () => {
+                    subTimeLeft--;
+                    phaseTimerText.setText(`Phase: ${subTimeLeft}s`);
+                    if (subTimeLeft <= 10) phaseTimerText.setColor('#ff4444');
+                    // Redraw to shift colors
+                    if (subTimeLeft % 3 === 0) drawTiles();
+                    if (subTimeLeft <= 0) {
+                        subTimer.remove(false);
+                        phaseCleanupFn = null;
+                        failBoss();
+                    }
+                },
+            });
+            phaseCleanupFn = () => { subTimer.remove(false); };
+        };
+
+        // === PHASE 4: The Brain - Equation Builder ===
+        const startPhase4 = () => {
+            const totalProblems = 5;
+            const perProblemTime = 15;
+            let currentProblem = 0;
+            let problemTimeLeft = perProblemTime;
+            let problemElements = [];
+
+            const instrText = this.add.text(width / 2, 58, 'Build equations to reach the target! Too slow = harder numbers.', {
+                fontSize: '14px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5);
+            phaseElements.push(instrText);
+
+            const progressText = this.add.text(width / 2, 80, `Problem 1/${totalProblems}`, {
+                fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#88aaff',
+            }).setOrigin(0.5);
+            phaseElements.push(progressText);
+
+            const generateProblem = (hard) => {
+                const maxVal = hard ? 999 : 100;
+                const numCount = hard ? 6 : 4;
+                const target = Phaser.Math.Between(hard ? 50 : 10, maxVal);
+                const available = [];
+                for (let i = 0; i < numCount; i++) {
+                    available.push(Phaser.Math.Between(1, hard ? 50 : 25));
+                }
+                return { target, available };
+            };
+
+            const clearProblem = () => {
+                problemElements.forEach(el => { if (el && el.destroy) el.destroy(); });
+                problemElements = [];
+            };
+
+            const showProblem = () => {
+                clearProblem();
+                if (currentProblem >= totalProblems) {
+                    if (problemTimer) problemTimer.remove(false);
+                    phaseCleanupFn = null;
+                    instrText.setText('All problems solved!').setColor('#44ff44');
+                    this.time.delayedCall(500, advancePhase);
+                    return;
+                }
+
+                const isHard = problemTimeLeft <= 0;
+                problemTimeLeft = perProblemTime;
+                phaseTimerText.setText(`Problem: ${problemTimeLeft}s`).setColor('#cccccc');
+                progressText.setText(`Problem ${currentProblem + 1}/${totalProblems}`);
+
+                const { target, available } = generateProblem(isHard);
+
+                const targetText = this.add.text(width / 2, 130, `Target: ${target}`, {
+                    fontSize: '32px', fontFamily: 'Arial, sans-serif', color: '#ffdd44',
+                }).setOrigin(0.5);
+                problemElements.push(targetText);
+
+                // Expression display
+                let expression = '';
+                let usedIndices = new Set();
+                const operations = ['+', '-', '*'];
+
+                const exprText = this.add.text(width / 2, 180, 'Expression: (click numbers and operators)', {
+                    fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                }).setOrigin(0.5);
+                problemElements.push(exprText);
+
+                const resultText = this.add.text(width / 2, 210, '', {
+                    fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+                }).setOrigin(0.5);
+                problemElements.push(resultText);
+
+                const updateExpression = () => {
+                    exprText.setText(`Expression: ${expression || '...'}`);
+                    try {
+                        if (expression && /\d$/.test(expression)) {
+                            const val = Function('"use strict"; return (' + expression + ')')();
+                            resultText.setText(`= ${val}`);
+                        }
+                    } catch (e) {
+                        resultText.setText('');
+                    }
+                };
+
+                // Number buttons
+                const numStartY = 280;
+                available.forEach((num, i) => {
+                    const nx = width / 2 - ((available.length - 1) * 35) + i * 70;
+                    const btn = this.add.rectangle(nx, numStartY, 60, 40, 0x3a5a3a)
+                        .setInteractive({ useHandCursor: true });
+                    const lbl = this.add.text(nx, numStartY, `${num}`, {
+                        fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                    }).setOrigin(0.5);
+                    problemElements.push(btn, lbl);
+
+                    btn.on('pointerdown', () => {
+                        if (usedIndices.has(i)) return;
+                        usedIndices.add(i);
+                        btn.setFillStyle(0x555555);
+                        expression += num;
+                        updateExpression();
+                    });
+                });
+
+                // Operator buttons
+                const opY = 340;
+                operations.forEach((op, i) => {
+                    const ox = width / 2 - 70 + i * 70;
+                    const btn = this.add.rectangle(ox, opY, 50, 40, 0x3a3a5a)
+                        .setInteractive({ useHandCursor: true });
+                    const lbl = this.add.text(ox, opY, op, {
+                        fontSize: '20px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                    }).setOrigin(0.5);
+                    problemElements.push(btn, lbl);
+
+                    btn.on('pointerdown', () => {
+                        expression += ` ${op} `;
+                        updateExpression();
+                    });
+                });
+
+                // Clear and Submit buttons
+                const clearBtn = this.add.rectangle(width / 2 - 80, 400, 120, 40, 0x5a3a3a)
+                    .setInteractive({ useHandCursor: true });
+                const clearLbl = this.add.text(width / 2 - 80, 400, 'Clear', {
+                    fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                }).setOrigin(0.5);
+                problemElements.push(clearBtn, clearLbl);
+                clearBtn.on('pointerdown', () => {
+                    expression = '';
+                    usedIndices.clear();
+                    updateExpression();
+                    // Re-enable number buttons
+                    problemElements.forEach(el => {
+                        if (el.fillColor === 0x555555) el.setFillStyle(0x3a5a3a);
+                    });
+                });
+
+                const submitBtn = this.add.rectangle(width / 2 + 80, 400, 120, 40, 0x3a5a3a)
+                    .setInteractive({ useHandCursor: true });
+                const submitLbl = this.add.text(width / 2 + 80, 400, 'Submit', {
+                    fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
+                }).setOrigin(0.5);
+                problemElements.push(submitBtn, submitLbl);
+                submitBtn.on('pointerdown', () => {
+                    try {
+                        if (!expression) return;
+                        const val = Function('"use strict"; return (' + expression + ')')();
+                        if (Math.abs(val - target) < 0.001) {
+                            currentProblem++;
+                            showProblem();
+                        } else {
+                            resultText.setText(`= ${val} (wrong!)`).setColor('#ff4444');
+                        }
+                    } catch (e) {
+                        resultText.setText('Invalid expression!').setColor('#ff4444');
+                    }
+                });
+            };
+
+            showProblem();
+
+            // Per-problem timer: replace with harder problem if too slow
+            const problemTimer = this.time.addEvent({
+                delay: 1000, loop: true,
+                callback: () => {
+                    problemTimeLeft--;
+                    phaseTimerText.setText(`Problem: ${problemTimeLeft}s`);
+                    if (problemTimeLeft <= 5) phaseTimerText.setColor('#ff4444');
+                    if (problemTimeLeft <= 0) {
+                        // Replace with harder problem (don't advance, just regenerate)
+                        showProblem();
+                    }
+                },
+            });
+            phaseCleanupFn = () => {
+                problemTimer.remove(false);
+                clearProblem();
+            };
+        };
+
+        // === PHASE 5: The Labyrinth ===
+        const startPhase5 = () => {
+            const mazeW = 31, mazeH = 31;
+            const fogRadius = 1;
+            const numEnemies = 8;
+            const numKeys = 6;
+            const subTimeLimit = 120;
+            let subTimeLeft = subTimeLimit;
+
+            phaseTimerText.setText(`Maze: ${subTimeLeft}s`).setColor('#cccccc');
+
+            // Generate maze using recursive backtracker
+            const maze = [];
+            for (let r = 0; r < mazeH; r++) {
+                maze[r] = [];
+                for (let c = 0; c < mazeW; c++) {
+                    maze[r][c] = 1; // wall
+                }
+            }
+
+            const carveMaze = (sr, sc) => {
+                maze[sr][sc] = 0;
+                const dirs = Phaser.Utils.Array.Shuffle([
+                    { dr: -2, dc: 0 }, { dr: 2, dc: 0 },
+                    { dr: 0, dc: -2 }, { dr: 0, dc: 2 },
+                ]);
+                for (const { dr, dc } of dirs) {
+                    const nr = sr + dr, nc = sc + dc;
+                    if (nr > 0 && nr < mazeH - 1 && nc > 0 && nc < mazeW - 1 && maze[nr][nc] === 1) {
+                        maze[sr + dr / 2][sc + dc / 2] = 0;
+                        carveMaze(nr, nc);
+                    }
+                }
+            };
+            carveMaze(1, 1);
+
+            // Place exit
+            const exitR = mazeH - 2, exitC = mazeW - 2;
+            maze[exitR][exitC] = 0;
+
+            // Compute cell size to fit screen
+            const availW = width - 20;
+            const availH = height - 100;
+            const cellSize = Math.floor(Math.min(availW / mazeW, availH / mazeH));
+            const mazePixelW = mazeW * cellSize;
+            const mazePixelH = mazeH * cellSize;
+            const mazeOffX = (width - mazePixelW) / 2;
+            const mazeOffY = 70;
+
+            // Player state
+            let playerR = 1, playerC = 1;
+            let keysCollected = 0;
+
+            // Place keys on open cells
+            const openCells = [];
+            for (let r = 1; r < mazeH - 1; r++) {
+                for (let c = 1; c < mazeW - 1; c++) {
+                    if (maze[r][c] === 0 && !(r === 1 && c === 1) && !(r === exitR && c === exitC)) {
+                        openCells.push({ r, c });
+                    }
+                }
+            }
+            Phaser.Utils.Array.Shuffle(openCells);
+
+            const keyPositions = [];
+            for (let i = 0; i < numKeys && i < openCells.length; i++) {
+                keyPositions.push(openCells[i]);
+            }
+            const keySet = new Set(keyPositions.map(k => `${k.r},${k.c}`));
+
+            // Place enemies on remaining open cells (far from start)
+            const farCells = openCells.filter(c => Math.abs(c.r - 1) + Math.abs(c.c - 1) > 10);
+            Phaser.Utils.Array.Shuffle(farCells);
+            const enemies = [];
+            for (let i = 0; i < numEnemies && i < farCells.length; i++) {
+                enemies.push({ r: farCells[i].r, c: farCells[i].c, dir: Phaser.Math.Between(0, 3) });
+            }
+
+            // Shifting walls timer
+            let shiftCounter = 0;
+
+            // Graphics container
+            const gfx = this.add.graphics();
+            phaseElements.push(gfx);
+
+            const instrText = this.add.text(width / 2, 55, `Collect ${numKeys} keys then reach the exit! Fog radius: ${fogRadius}`, {
+                fontSize: '12px', fontFamily: 'Arial, sans-serif', color: '#aaaaaa',
+            }).setOrigin(0.5);
+            phaseElements.push(instrText);
+
+            const keyText = this.add.text(20, height - 30, `Keys: ${keysCollected}/${numKeys}`, {
+                fontSize: '16px', fontFamily: 'Arial, sans-serif', color: '#ffdd44',
+            }).setOrigin(0, 0.5);
+            phaseElements.push(keyText);
+
+            const drawMaze = () => {
+                gfx.clear();
+                for (let r = 0; r < mazeH; r++) {
+                    for (let c = 0; c < mazeW; c++) {
+                        const dist = Math.abs(r - playerR) + Math.abs(c - playerC);
+                        if (dist > fogRadius) continue;
+
+                        const px = mazeOffX + c * cellSize;
+                        const py = mazeOffY + r * cellSize;
+
+                        if (maze[r][c] === 1) {
+                            gfx.fillStyle(0x444466, 1);
+                        } else {
+                            gfx.fillStyle(0x111122, 1);
+                        }
+                        gfx.fillRect(px, py, cellSize, cellSize);
+
+                        // Draw keys
+                        if (keySet.has(`${r},${c}`)) {
+                            gfx.fillStyle(0xffdd44, 1);
+                            gfx.fillCircle(px + cellSize / 2, py + cellSize / 2, cellSize * 0.25);
+                        }
+
+                        // Draw exit
+                        if (r === exitR && c === exitC) {
+                            gfx.fillStyle(keysCollected >= numKeys ? 0x44ff44 : 0x884444, 1);
+                            gfx.fillRect(px + 2, py + 2, cellSize - 4, cellSize - 4);
+                        }
+
+                        // Draw enemies
+                        enemies.forEach(e => {
+                            if (e.r === r && e.c === c) {
+                                gfx.fillStyle(0xff2222, 1);
+                                gfx.fillTriangle(
+                                    px + cellSize / 2, py + 2,
+                                    px + 2, py + cellSize - 2,
+                                    px + cellSize - 2, py + cellSize - 2
+                                );
+                            }
+                        });
+                    }
+                }
+
+                // Draw player
+                const ppx = mazeOffX + playerC * cellSize + cellSize / 2;
+                const ppy = mazeOffY + playerR * cellSize + cellSize / 2;
+                gfx.fillStyle(0x44aaff, 1);
+                gfx.fillCircle(ppx, ppy, cellSize * 0.35);
+            };
+
+            drawMaze();
+
+            // Player movement
+            const movePlayer = (dr, dc) => {
+                const nr = playerR + dr, nc = playerC + dc;
+                if (nr < 0 || nr >= mazeH || nc < 0 || nc >= mazeW) return;
+                if (maze[nr][nc] === 1) return;
+
+                playerR = nr;
+                playerC = nc;
+
+                // Check key pickup
+                const posKey = `${nr},${nc}`;
+                if (keySet.has(posKey)) {
+                    keySet.delete(posKey);
+                    keysCollected++;
+                    keyText.setText(`Keys: ${keysCollected}/${numKeys}`);
+                }
+
+                // Check enemy collision
+                for (const e of enemies) {
+                    if (e.r === playerR && e.c === playerC) {
+                        // Respawn at start
+                        playerR = 1; playerC = 1;
+                        instrText.setText('Caught! Respawning at start...').setColor('#ff4444');
+                        this.time.delayedCall(1000, () => {
+                            instrText.setText(`Collect ${numKeys} keys then reach the exit!`).setColor('#aaaaaa');
+                        });
+                        break;
+                    }
+                }
+
+                // Check exit
+                if (playerR === exitR && playerC === exitC && keysCollected >= numKeys) {
+                    this.input.keyboard.removeAllListeners();
+                    if (mazeTimer) mazeTimer.remove(false);
+                    if (enemyTimer) enemyTimer.remove(false);
+                    if (wallShiftTimer) wallShiftTimer.remove(false);
+                    phaseCleanupFn = null;
+                    instrText.setText('ESCAPED!').setColor('#44ff44');
+                    this.time.delayedCall(500, advancePhase);
+                    return;
+                }
+
+                drawMaze();
+            };
+
+            this.input.keyboard.on('keydown-UP', () => movePlayer(-1, 0));
+            this.input.keyboard.on('keydown-DOWN', () => movePlayer(1, 0));
+            this.input.keyboard.on('keydown-LEFT', () => movePlayer(0, -1));
+            this.input.keyboard.on('keydown-RIGHT', () => movePlayer(0, 1));
+            this.input.keyboard.on('keydown-W', () => movePlayer(-1, 0));
+            this.input.keyboard.on('keydown-S', () => movePlayer(1, 0));
+            this.input.keyboard.on('keydown-A', () => movePlayer(0, -1));
+            this.input.keyboard.on('keydown-D', () => movePlayer(0, 1));
+
+            // Enemy patrol
+            const moveEnemies = () => {
+                enemies.forEach(e => {
+                    const dirs = [{ dr: -1, dc: 0 }, { dr: 1, dc: 0 }, { dr: 0, dc: -1 }, { dr: 0, dc: 1 }];
+                    // Try current direction first, then random
+                    const tryDirs = [dirs[e.dir], ...Phaser.Utils.Array.Shuffle(dirs)];
+                    let moved = false;
+                    for (const d of tryDirs) {
+                        const nr = e.r + d.dr, nc = e.c + d.dc;
+                        if (nr > 0 && nr < mazeH - 1 && nc > 0 && nc < mazeW - 1 && maze[nr][nc] === 0) {
+                            e.r = nr; e.c = nc;
+                            e.dir = dirs.indexOf(d) >= 0 ? dirs.indexOf(d) : e.dir;
+                            moved = true;
+                            break;
+                        }
+                    }
+
+                    // Check if enemy caught player
+                    if (e.r === playerR && e.c === playerC) {
+                        playerR = 1; playerC = 1;
+                        instrText.setText('Caught! Respawning...').setColor('#ff4444');
+                        this.time.delayedCall(1000, () => {
+                            instrText.setText(`Collect ${numKeys} keys then reach the exit!`).setColor('#aaaaaa');
+                        });
+                    }
+                });
+                drawMaze();
+            };
+
+            const enemyTimer = this.time.addEvent({
+                delay: 300, loop: true, callback: moveEnemies,
+            });
+
+            // Shifting walls: every 15 seconds, toggle a few wall segments
+            const wallShiftTimer = this.time.addEvent({
+                delay: 15000, loop: true,
+                callback: () => {
+                    shiftCounter++;
+                    // Toggle some walls near corridors
+                    let toggled = 0;
+                    const shuffledOpen = [...openCells];
+                    Phaser.Utils.Array.Shuffle(shuffledOpen);
+                    for (const cell of shuffledOpen) {
+                        if (toggled >= 3) break;
+                        // Find adjacent wall that can be toggled without blocking critical path
+                        const adjWalls = [
+                            { r: cell.r - 1, c: cell.c },
+                            { r: cell.r + 1, c: cell.c },
+                            { r: cell.r, c: cell.c - 1 },
+                            { r: cell.r, c: cell.c + 1 },
+                        ].filter(w => w.r > 0 && w.r < mazeH - 1 && w.c > 0 && w.c < mazeW - 1);
+
+                        for (const w of adjWalls) {
+                            if (w.r === playerR && w.c === playerC) continue;
+                            if (w.r === exitR && w.c === exitC) continue;
+                            if (w.r === 1 && w.c === 1) continue;
+                            if (maze[w.r][w.c] === 1) {
+                                // Open a wall
+                                maze[w.r][w.c] = 0;
+                                toggled++;
+                                break;
+                            } else if (maze[w.r][w.c] === 0 && !keySet.has(`${w.r},${w.c}`)) {
+                                // Close a path (only if not player/enemy/key position)
+                                let hasEnemy = enemies.some(e => e.r === w.r && e.c === w.c);
+                                if (!hasEnemy) {
+                                    maze[w.r][w.c] = 1;
+                                    toggled++;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    drawMaze();
+                },
+            });
+
+            // Sub-timer
+            const mazeTimer = this.time.addEvent({
+                delay: 1000, loop: true,
+                callback: () => {
+                    subTimeLeft--;
+                    phaseTimerText.setText(`Maze: ${subTimeLeft}s`);
+                    if (subTimeLeft <= 20) phaseTimerText.setColor('#ff4444');
+                    if (subTimeLeft <= 0) {
+                        mazeTimer.remove(false);
+                        enemyTimer.remove(false);
+                        wallShiftTimer.remove(false);
+                        this.input.keyboard.removeAllListeners();
+                        phaseCleanupFn = null;
+                        failBoss();
+                    }
+                },
+            });
+
+            phaseCleanupFn = () => {
+                mazeTimer.remove(false);
+                enemyTimer.remove(false);
+                wallShiftTimer.remove(false);
+            };
+        };
+
+        // Phase functions array
+        const phaseFunctions = [startPhase1, startPhase2, startPhase3, startPhase4, startPhase5];
+
+        const startPhase = () => {
+            phaseFunctions[currentPhase]();
+        };
+
+        // Begin!
+        startPhase();
+    }
+
+    formatTime(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
     handleTimeUp() {
         const { width, height } = this.scale;
 
@@ -11700,6 +12801,7 @@ class GameScene extends Phaser.Scene {
         if (this.reactionTimeCleanup) this.reactionTimeCleanup();
         if (this.mathCleanup) this.mathCleanup();
         if (this.multiPuzzleCleanup) this.multiPuzzleCleanup();
+        if (this.finalBossCleanup) this.finalBossCleanup();
 
         // Disable all interactive objects
         this.children.list.forEach(child => {
