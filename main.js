@@ -47,6 +47,7 @@ const LevelRegistry = {
     40: { type: 'tower-of-hanoi', config: { discs: 5 } },
     41: { type: 'simon-says', config: { sequenceLength: 10, colors: 6, playbackSpeed: 400, replayAllowed: false } },
     42: { type: 'color-chain', config: { gridSize: 7, colors: 8, fillBoard: true } },
+    43: { type: 'memory-cards', config: { rows: 5, cols: 6, timeLimit: 35, reshuffleAfter: 3, flipBackSpeed: 500 } },
 };
 
 // ============================================================
@@ -442,7 +443,7 @@ class GameScene extends Phaser.Scene {
 
     createMemoryCardsPuzzle(config) {
         const { width, height } = this.scale;
-        const { rows, cols, timeLimit, reshuffleAfter } = config;
+        const { rows, cols, timeLimit, reshuffleAfter, flipBackSpeed } = config;
         const totalCards = rows * cols;
         const numPairs = totalCards / 2;
 
@@ -457,6 +458,11 @@ class GameScene extends Phaser.Scene {
             { name: 'Pink', hex: 0xff44aa },
             { name: 'Lime', hex: 0x88ff44 },
             { name: 'Teal', hex: 0x22aa88 },
+            { name: 'Coral', hex: 0xff6b6b },
+            { name: 'Indigo', hex: 0x5555ff },
+            { name: 'Gold', hex: 0xffd700 },
+            { name: 'Maroon', hex: 0xaa3344 },
+            { name: 'Mint', hex: 0x44ffaa },
         ];
 
         // Create pairs and shuffle
@@ -508,10 +514,12 @@ class GameScene extends Phaser.Scene {
             });
         }
 
-        // Card dimensions and layout
-        const cardW = 100;
-        const cardH = 120;
-        const padding = 16;
+        // Card dimensions and layout - scale to fit the available area
+        const padding = 12;
+        const availW = width - 40;
+        const availH = height - 180;
+        const cardW = Math.min(100, Math.floor((availW - (cols - 1) * padding) / cols));
+        const cardH = Math.min(120, Math.floor((availH - (rows - 1) * padding) / rows));
         const gridW = cols * (cardW + padding) - padding;
         const gridH = rows * (cardH + padding) - padding;
         const startX = (width - gridW) / 2 + cardW / 2;
@@ -535,8 +543,9 @@ class GameScene extends Phaser.Scene {
             // Face-down card back
             const back = this.add.rectangle(x, y, cardW, cardH, 0x3a3a6a)
                 .setInteractive({ useHandCursor: true });
+            const qmFontSize = Math.min(36, Math.floor(cardH * 0.3));
             const questionMark = this.add.text(x, y, '?', {
-                fontSize: '36px',
+                fontSize: `${qmFontSize}px`,
                 fontFamily: 'Arial, sans-serif',
                 color: '#888888',
             }).setOrigin(0.5);
@@ -544,8 +553,9 @@ class GameScene extends Phaser.Scene {
             // Face-up card (hidden initially)
             const face = this.add.rectangle(x, y, cardW, cardH, color.hex)
                 .setVisible(false);
+            const lblFontSize = Math.min(16, Math.floor(cardW * 0.16));
             const colorLabel = this.add.text(x, y, color.name, {
-                fontSize: '16px',
+                fontSize: `${lblFontSize}px`,
                 fontFamily: 'Arial, sans-serif',
                 color: '#ffffff',
             }).setOrigin(0.5).setVisible(false);
@@ -599,12 +609,12 @@ class GameScene extends Phaser.Scene {
                             });
                         }
                     } else {
-                        // No match - flip back after 1 second
+                        // No match - flip back
                         consecutiveMisses++;
                         const fc = firstCard;
                         const sc = secondCard;
                         const shouldReshuffle = reshuffleAfter && consecutiveMisses >= reshuffleAfter;
-                        this.time.delayedCall(1000, () => {
+                        this.time.delayedCall(flipBackSpeed || 1000, () => {
                             fc.flipped = false;
                             fc.back.setVisible(true);
                             fc.questionMark.setVisible(true);
