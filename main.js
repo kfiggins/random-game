@@ -83,6 +83,7 @@ const LevelRegistry = {
     76: { type: 'jigsaw', config: { rows: 6, cols: 6, canRotate: true, timeLimit: 120 } },
     77: { type: 'math', config: { problems: 4, mode: 'rate-of-change', timeLimit: 120 } },
     78: { type: 'word-scramble', config: { mode: 'anagram-chain', chainLength: 5, timeLimit: 90 } },
+    79: { type: 'tower-of-hanoi', config: { discs: 8, timeLimit: 300 } },
 };
 
 // ============================================================
@@ -9492,7 +9493,7 @@ class GameScene extends Phaser.Scene {
 
     createTowerOfHanoiPuzzle(config) {
         const { width, height } = this.scale;
-        const { discs } = config;
+        const { discs, timeLimit } = config;
         const minMoves = Math.pow(2, discs) - 1;
 
         // Instructions
@@ -9501,6 +9502,36 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Arial, sans-serif',
             color: '#aaaaaa',
         }).setOrigin(0.5);
+
+        // Timer (if timeLimit is set)
+        let timerEvent = null;
+        if (timeLimit) {
+            let timeLeft = timeLimit;
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            const timerText = this.add.text(width / 2, 95, `Time: ${minutes}:${seconds.toString().padStart(2, '0')}`, {
+                fontSize: '20px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            timerEvent = this.time.addEvent({
+                delay: 1000,
+                repeat: timeLimit - 1,
+                callback: () => {
+                    timeLeft--;
+                    const m = Math.floor(timeLeft / 60);
+                    const s = timeLeft % 60;
+                    timerText.setText(`Time: ${m}:${s.toString().padStart(2, '0')}`);
+                    if (timeLeft <= 10) {
+                        timerText.setColor('#ff4444');
+                    }
+                    if (timeLeft <= 0) {
+                        this.handleTimeUp();
+                    }
+                },
+            });
+        }
 
         // Move counter
         let moveCount = 0;
@@ -9522,7 +9553,7 @@ class GameScene extends Phaser.Scene {
         const pegHeight = 200;
         const pegWidth = 8;
         const baseWidth = 180;
-        const discHeight = 30;
+        const discHeight = Math.min(30, Math.floor(pegHeight / discs) - 2);
         const maxDiscWidth = 150;
         const minDiscWidth = 50;
 
@@ -9666,6 +9697,7 @@ class GameScene extends Phaser.Scene {
 
                     // Check win: all discs on right peg
                     if (pegs[2].length === discs) {
+                        if (timerEvent) timerEvent.remove(false);
                         this.time.delayedCall(500, () => {
                             this.scene.start('LevelCompleteScene', { level: this.level });
                         });
