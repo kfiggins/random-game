@@ -19,6 +19,7 @@ const LevelRegistry = {
     12: { type: 'memory-cards', config: { rows: 3, cols: 4, timeLimit: 0 } },
     13: { type: 'simon-says', config: { sequenceLength: 5, colors: 4, playbackSpeed: 600 } },
     14: { type: 'sliding-puzzle', config: { size: 3 } },
+    15: { type: 'maze', config: { width: 11, height: 11, cellSize: 45 } },
 };
 
 // ============================================================
@@ -802,17 +803,30 @@ class GameScene extends Phaser.Scene {
         const { width, height } = this.scale;
         const { width: mazeW, height: mazeH, cellSize } = config;
 
+        // Generate maze using recursive backtracker algorithm
         // 0 = path, 1 = wall
-        // Hardcoded 7x7 maze with wide corridors and a clear solution path
-        const maze = [
-            [0, 0, 0, 1, 0, 0, 0],
-            [1, 1, 0, 1, 0, 1, 0],
-            [0, 0, 0, 0, 0, 1, 0],
-            [0, 1, 1, 1, 0, 1, 0],
-            [0, 1, 0, 0, 0, 0, 0],
-            [0, 0, 0, 1, 1, 1, 0],
-            [1, 1, 0, 0, 0, 0, 0],
-        ];
+        const maze = Array.from({ length: mazeH }, () => Array(mazeW).fill(1));
+
+        const carveMaze = (r, c) => {
+            maze[r][c] = 0;
+            const dirs = [[0, 2], [0, -2], [2, 0], [-2, 0]];
+            // Shuffle directions
+            for (let i = dirs.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
+            }
+            for (const [dr, dc] of dirs) {
+                const nr = r + dr;
+                const nc = c + dc;
+                if (nr >= 0 && nr < mazeH && nc >= 0 && nc < mazeW && maze[nr][nc] === 1) {
+                    maze[r + dr / 2][c + dc / 2] = 0;
+                    carveMaze(nr, nc);
+                }
+            }
+        };
+        carveMaze(0, 0);
+        // Ensure exit cell is open
+        maze[mazeH - 1][mazeW - 1] = 0;
 
         // Instructions
         this.add.text(width / 2, 30, 'Use arrow keys to reach the star!', {
@@ -845,9 +859,9 @@ class GameScene extends Phaser.Scene {
             }
         }
 
-        // Exit star at bottom-right (6,6)
-        const exitX = offsetX + 6 * cellSize + cellSize / 2;
-        const exitY = offsetY + 6 * cellSize + cellSize / 2;
+        // Exit star at bottom-right
+        const exitX = offsetX + (mazeW - 1) * cellSize + cellSize / 2;
+        const exitY = offsetY + (mazeH - 1) * cellSize + cellSize / 2;
         const star = this.add.star(exitX, exitY, 5, 10, 22, 0xffdd44);
 
         // Player circle at top-left (0,0)
