@@ -89,6 +89,7 @@ const LevelRegistry = {
     82: { type: 'reaction-time', config: { targets: 20, targetSize: 15, stayTime: 800, timeLimit: 15, hasDecoys: true, moving: true, shrinking: true, decoyRatio: 2 } },
     83: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, mode: 'recursive' } },
     84: { type: 'maze', config: { width: 35, height: 35, cellSize: 16, fogOfWar: true, viewRadius: 2, enemies: 8, traps: 10, timeLimit: 75, hasKeys: true, keys: 5, teleporters: 3, darkZones: true } },
+    85: { type: 'pattern-complete', config: { patternLength: 25, numChoices: 10, is2D: true, illusion: true } },
 };
 
 // ============================================================
@@ -1922,6 +1923,11 @@ class GameScene extends Phaser.Scene {
             { name: 'Diamond', color: 0xffdd44, colorName: 'Yellow' },
         ];
 
+        if (is2D && config.illusion) {
+            this.createPatternCompleteIllusion(config, shapeDefs);
+            return;
+        }
+
         if (is2D && config.fractal) {
             this.createPatternCompleteFractal(config, shapeDefs);
             return;
@@ -2529,6 +2535,335 @@ class GameScene extends Phaser.Scene {
 
         // Initial hint
         feedbackText.setText('Click a "?" cell to select it.').setColor('#aaaaaa');
+    }
+
+    createPatternCompleteIllusion(config, baseShapeDefs) {
+        const { width, height } = this.scale;
+        const { numChoices } = config;
+        const gridSize = 5;
+        const numMissing = 5;
+
+        // Illusion shape defs: similar colors and subtle shape differences
+        // Each shape has a very close color variant to create visual confusion
+        const shapeDefs = [
+            { name: 'Circle', color: 0x2244aa, colorName: 'Navy', size: 1.0 },
+            { name: 'Circle', color: 0x2a4cb8, colorName: 'Deep Blue', size: 0.92 },
+            { name: 'Oval', color: 0x2244aa, colorName: 'Navy Oval', size: 1.0 },
+            { name: 'Square', color: 0x3355bb, colorName: 'Blue', size: 1.0 },
+            { name: 'Square', color: 0x3a5cc4, colorName: 'Slate Blue', size: 0.9 },
+            { name: 'Diamond', color: 0x2244aa, colorName: 'Navy Dia', size: 1.0 },
+            { name: 'Diamond', color: 0x2e4eb2, colorName: 'Indigo Dia', size: 0.93 },
+            { name: 'Triangle', color: 0x3355bb, colorName: 'Blue Tri', size: 1.0 },
+            { name: 'Triangle', color: 0x2a4cb8, colorName: 'Deep Tri', size: 0.91 },
+            { name: 'Hexagon', color: 0x2244aa, colorName: 'Navy Hex', size: 1.0 },
+        ];
+
+        // Instructions
+        this.add.text(width / 2, 30, 'Optical Illusion Pattern!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 50, 'Shapes look similar — watch the subtle differences!', {
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#777777',
+        }).setOrigin(0.5);
+
+        // Draw shape with illusion effects (subtle size/stretch differences)
+        const drawIllusionShape = (x, y, shapeDef, baseSize) => {
+            const s = baseSize * (shapeDef.size || 1.0);
+            const color = shapeDef.color;
+            const group = [];
+
+            if (shapeDef.name === 'Circle') {
+                group.push(this.add.circle(x, y, s / 2, color));
+            } else if (shapeDef.name === 'Oval') {
+                const oval = this.add.ellipse(x, y, s * 1.15, s * 0.8, color);
+                group.push(oval);
+            } else if (shapeDef.name === 'Square') {
+                group.push(this.add.rectangle(x, y, s, s, color));
+            } else if (shapeDef.name === 'Triangle') {
+                group.push(this.add.triangle(x, y, 0, s, s / 2, 0, s, s, color));
+            } else if (shapeDef.name === 'Diamond') {
+                group.push(this.add.polygon(x, y, [
+                    0, -s / 2, s / 2, 0, 0, s / 2, -s / 2, 0,
+                ], color));
+            } else if (shapeDef.name === 'Hexagon') {
+                const pts = [];
+                for (let i = 0; i < 6; i++) {
+                    const angle = (Math.PI * 2 * i) / 6 - Math.PI / 6;
+                    pts.push(Math.cos(angle) * s / 2, Math.sin(angle) * s / 2);
+                }
+                group.push(this.add.polygon(x, y, pts, color));
+            }
+
+            // Add subtle visual noise — a faint ring to create optical illusion depth
+            const ring = this.add.circle(x, y, s / 2 + 2).setStrokeStyle(1, color, 0.15).setFillStyle(0x000000, 0);
+            group.push(ring);
+
+            return group;
+        };
+
+        // Build 5x5 grid: pattern uses (r + c) mod 5 from shuffled shape pool
+        const patternShapes = Phaser.Utils.Array.Shuffle([...shapeDefs]).slice(0, gridSize);
+        const grid = [];
+        for (let r = 0; r < gridSize; r++) {
+            grid[r] = [];
+            for (let c = 0; c < gridSize; c++) {
+                grid[r][c] = patternShapes[(r + c) % gridSize];
+            }
+        }
+
+        // Pick 5 missing cells spread across the grid
+        const allCells = [];
+        for (let r = 0; r < gridSize; r++) {
+            for (let c = 0; c < gridSize; c++) {
+                allCells.push({ r, c });
+            }
+        }
+        Phaser.Utils.Array.Shuffle(allCells);
+        // Ensure spread: pick from different rows
+        const missingCells = [];
+        const usedRows = new Set();
+        for (const cell of allCells) {
+            if (missingCells.length >= numMissing) break;
+            if (!usedRows.has(cell.r) || missingCells.length >= gridSize) {
+                missingCells.push(cell);
+                usedRows.add(cell.r);
+            }
+        }
+        while (missingCells.length < numMissing) {
+            const cell = allCells.find(c => !missingCells.some(m => m.r === c.r && m.c === c.c));
+            if (cell) missingCells.push(cell);
+            else break;
+        }
+        const missingSet = new Set(missingCells.map(m => `${m.r},${m.c}`));
+
+        // Draw the grid
+        const shapeSize = 46;
+        const padding = 8;
+        const totalGridW = gridSize * shapeSize + (gridSize - 1) * padding;
+        const totalGridH = totalGridW;
+        const gridStartX = (width - totalGridW) / 2 + shapeSize / 2;
+        const gridStartY = 72 + shapeSize / 2;
+
+        const getCellPos = (r, c) => ({
+            x: gridStartX + c * (shapeSize + padding),
+            y: gridStartY + r * (shapeSize + padding),
+        });
+
+        // Draw background pattern lines to create additional optical illusion
+        for (let r = 0; r < gridSize; r++) {
+            const { y } = getCellPos(r, 0);
+            const { x: x0 } = getCellPos(r, 0);
+            const { x: x4 } = getCellPos(r, gridSize - 1);
+            this.add.line(0, 0, x0 - shapeSize / 2, y, x4 + shapeSize / 2, y, 0x222244, 0.3).setOrigin(0);
+        }
+        for (let c = 0; c < gridSize; c++) {
+            const { x } = getCellPos(0, c);
+            const { y: y0 } = getCellPos(0, c);
+            const { y: y4 } = getCellPos(gridSize - 1, c);
+            this.add.line(0, 0, x, y0 - shapeSize / 2, x, y4 + shapeSize / 2, 0x222244, 0.3).setOrigin(0);
+        }
+
+        const placeholders = {};
+        const questionMarks = {};
+
+        for (let r = 0; r < gridSize; r++) {
+            for (let c = 0; c < gridSize; c++) {
+                const { x, y } = getCellPos(r, c);
+                const key = `${r},${c}`;
+
+                if (missingSet.has(key)) {
+                    const ph = this.add.rectangle(x, y, shapeSize, shapeSize, 0x2a2a4a)
+                        .setInteractive({ useHandCursor: true });
+                    const qm = this.add.text(x, y, '?', {
+                        fontSize: '24px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#555588',
+                    }).setOrigin(0.5);
+                    placeholders[key] = ph;
+                    questionMarks[key] = qm;
+                } else {
+                    drawIllusionShape(x, y, grid[r][c], shapeSize - 6);
+                }
+            }
+        }
+
+        // State tracking
+        let selectedCell = null;
+        let solvedCount = 0;
+        const solvedCells = new Set();
+        let selectionOutline = null;
+
+        const feedbackText = this.add.text(width / 2, height - 30, '', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        const progressText = this.add.text(width / 2, height - 50, `Filled: 0 / ${numMissing}`, {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Click handler for placeholder cells
+        missingCells.forEach(({ r, c }) => {
+            const key = `${r},${c}`;
+            const ph = placeholders[key];
+
+            ph.on('pointerdown', () => {
+                if (solvedCells.has(key)) return;
+                if (selectionOutline) selectionOutline.destroy();
+
+                selectedCell = { r, c, key };
+                const { x, y } = getCellPos(r, c);
+                selectionOutline = this.add.rectangle(x, y, shapeSize + 4, shapeSize + 4)
+                    .setStrokeStyle(2, 0xaaaaff)
+                    .setFillStyle(0x000000, 0);
+
+                feedbackText.setText(`Pick shape for row ${r + 1}, col ${c + 1}`).setColor('#8888aa');
+                updateChoices();
+            });
+        });
+
+        // Build choices area - two rows of 5 for 10 choices
+        const choiceSize = 36;
+        const choicePadding = 10;
+        const choicesPerRow = 5;
+        const choiceRows = Math.ceil(numChoices / choicesPerRow);
+        const choiceRowW = choicesPerRow * choiceSize + (choicesPerRow - 1) * choicePadding;
+        const choiceBaseY = gridStartY + gridSize * (shapeSize + padding) + 20;
+        const choiceStartX = (width - choiceRowW) / 2 + choiceSize / 2;
+
+        // Precompute choices for each missing cell
+        const cellChoices = {};
+        missingCells.forEach(({ r, c }) => {
+            const key = `${r},${c}`;
+            const correct = grid[r][c];
+            // Pick confusing alternatives: shapes with similar colors/shapes
+            const others = shapeDefs.filter(s => s.colorName !== correct.colorName);
+            Phaser.Utils.Array.Shuffle(others);
+            const choices = [correct, ...others.slice(0, numChoices - 1)];
+            Phaser.Utils.Array.Shuffle(choices);
+            cellChoices[key] = choices;
+        });
+
+        const choiceBgs = [];
+        const choiceShapeObjs = [];
+        const choiceLabels = [];
+
+        for (let i = 0; i < numChoices; i++) {
+            const row = Math.floor(i / choicesPerRow);
+            const col = i % choicesPerRow;
+            const cx = choiceStartX + col * (choiceSize + choicePadding);
+            const cy = choiceBaseY + row * (choiceSize + 22);
+
+            const bg = this.add.rectangle(cx, cy, choiceSize + 6, choiceSize + 6, 0x1a1a3a)
+                .setInteractive({ useHandCursor: true });
+            choiceBgs.push(bg);
+            choiceShapeObjs.push(null);
+
+            const label = this.add.text(cx, cy + choiceSize / 2 + 8, '', {
+                fontSize: '8px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#666688',
+            }).setOrigin(0.5);
+            choiceLabels.push(label);
+
+            bg.on('pointerover', () => {
+                if (selectedCell && !solvedCells.has(selectedCell.key)) bg.setFillStyle(0x3a3a5a);
+            });
+            bg.on('pointerout', () => {
+                bg.setFillStyle(0x1a1a3a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (!selectedCell || solvedCells.has(selectedCell.key)) return;
+
+                const key = selectedCell.key;
+                const choices = cellChoices[key];
+                if (i >= choices.length) return;
+                const picked = choices[i];
+                const correct = grid[selectedCell.r][selectedCell.c];
+
+                if (picked.colorName === correct.colorName) {
+                    solvedCells.add(key);
+                    solvedCount++;
+                    progressText.setText(`Filled: ${solvedCount} / ${numMissing}`);
+
+                    const { x: sx, y: sy } = getCellPos(selectedCell.r, selectedCell.c);
+                    placeholders[key].setVisible(false);
+                    questionMarks[key].setVisible(false);
+                    drawIllusionShape(sx, sy, correct, shapeSize - 6);
+
+                    if (selectionOutline) {
+                        selectionOutline.destroy();
+                        selectionOutline = null;
+                    }
+                    selectedCell = null;
+
+                    if (solvedCount >= numMissing) {
+                        feedbackText.setText('All correct!').setColor('#44dd44');
+                        this.time.delayedCall(600, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    } else {
+                        feedbackText.setText('Correct! Pick the next gap.').setColor('#44dd44');
+                        clearChoices();
+                    }
+                } else {
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Look more carefully...').setColor('#ff4444');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x1a1a3a);
+                    });
+                }
+            });
+        }
+
+        const clearChoices = () => {
+            for (let i = 0; i < numChoices; i++) {
+                if (choiceShapeObjs[i]) {
+                    if (Array.isArray(choiceShapeObjs[i])) {
+                        choiceShapeObjs[i].forEach(o => o.destroy());
+                    } else {
+                        choiceShapeObjs[i].destroy();
+                    }
+                    choiceShapeObjs[i] = null;
+                }
+                choiceLabels[i].setText('');
+            }
+        };
+
+        const updateChoices = () => {
+            if (!selectedCell) return;
+            const choices = cellChoices[selectedCell.key];
+
+            for (let i = 0; i < numChoices; i++) {
+                const row = Math.floor(i / choicesPerRow);
+                const col = i % choicesPerRow;
+                const cx = choiceStartX + col * (choiceSize + choicePadding);
+                const cy = choiceBaseY + row * (choiceSize + 22);
+
+                if (choiceShapeObjs[i]) {
+                    if (Array.isArray(choiceShapeObjs[i])) {
+                        choiceShapeObjs[i].forEach(o => o.destroy());
+                    } else {
+                        choiceShapeObjs[i].destroy();
+                    }
+                }
+                if (i < choices.length) {
+                    choiceShapeObjs[i] = drawIllusionShape(cx, cy, choices[i], choiceSize - 8);
+                    choiceLabels[i].setText(choices[i].colorName);
+                }
+            }
+        };
+
+        feedbackText.setText('Click a "?" cell to select it.').setColor('#8888aa');
     }
 
     createPatternCompleteFractal(config, baseShapeDefs) {
