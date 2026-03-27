@@ -87,6 +87,7 @@ const LevelRegistry = {
     80: { type: 'multi-puzzle', config: { stages: 6, timeLimit: 200 } },
     81: { type: 'color-chain', config: { gridSize: 12, colors: 15, fillBoard: true, timeLimit: 240 } },
     82: { type: 'reaction-time', config: { targets: 20, targetSize: 15, stayTime: 800, timeLimit: 15, hasDecoys: true, moving: true, shrinking: true, decoyRatio: 2 } },
+    83: { type: 'sequence-logic', config: { sequenceLength: 10, numChoices: 6, mode: 'recursive' } },
 };
 
 // ============================================================
@@ -8723,7 +8724,7 @@ class GameScene extends Phaser.Scene {
 
     createSequenceLogicPuzzle(config) {
         const { width, height } = this.scale;
-        const { sequenceLength, numChoices, interleaved } = config;
+        const { sequenceLength, numChoices, interleaved, mode } = config;
 
         // Predefined sequences with clear single rules
         const sequenceDefs = [
@@ -8744,6 +8745,11 @@ class GameScene extends Phaser.Scene {
             { rule: 'even numbers', gen: (n) => Array.from({ length: n + 1 }, (_, i) => 2 + i * 2) },
             { rule: 'add increasing', gen: (n) => { const s = [1]; for (let i = 1; i <= n; i++) s.push(s[i - 1] + i + 1); return s; } },
         ];
+
+        if (mode === 'recursive') {
+            this.createRecursiveSequenceLogic(config);
+            return;
+        }
 
         if (interleaved) {
             this.createInterleavedSequenceLogic(config, sequenceDefs);
@@ -9163,6 +9169,191 @@ class GameScene extends Phaser.Scene {
         Phaser.Utils.Array.Shuffle(choices);
 
         // Draw choice buttons - use two rows for 6 choices
+        const choiceY = height / 2 + 40;
+        const choicesPerRow = 3;
+        const choiceW = 80;
+        const choicePadding = 20;
+        const rowSpacing = 60;
+
+        const feedbackText = this.add.text(width / 2, choiceY + rowSpacing + 50, '', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ff4444',
+        }).setOrigin(0.5);
+
+        let solved = false;
+
+        choices.forEach((value, i) => {
+            const row = Math.floor(i / choicesPerRow);
+            const col = i % choicesPerRow;
+            const rowTotalW = choicesPerRow * choiceW + (choicesPerRow - 1) * choicePadding;
+            const rowStartX = (width - rowTotalW) / 2 + choiceW / 2;
+            const cx = rowStartX + col * (choiceW + choicePadding);
+            const cy = choiceY + row * rowSpacing;
+
+            const bg = this.add.rectangle(cx, cy, choiceW, 46, 0x2a2a4a)
+                .setStrokeStyle(2, 0x4a4a6a)
+                .setInteractive({ useHandCursor: true });
+
+            this.add.text(cx, cy, String(value), {
+                fontSize: '22px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            bg.on('pointerover', () => {
+                if (!solved) bg.setFillStyle(0x4a4a6a);
+            });
+            bg.on('pointerout', () => {
+                if (!solved) bg.setFillStyle(0x2a2a4a);
+            });
+
+            bg.on('pointerdown', () => {
+                if (solved) return;
+
+                if (value === correctAnswer) {
+                    solved = true;
+                    feedbackText.setText('Correct!').setColor('#44dd44');
+
+                    // Replace the '?' with the correct answer
+                    const lastX = startX + (items.length - 1) * itemSpacing;
+                    this.add.rectangle(lastX, seqY, boxSize, boxSize, 0x2a6a2a)
+                        .setStrokeStyle(2, 0x44dd44);
+                    this.add.text(lastX, seqY, String(correctAnswer), {
+                        fontSize: '20px',
+                        fontFamily: 'Arial, sans-serif',
+                        color: '#44dd44',
+                    }).setOrigin(0.5);
+
+                    this.time.delayedCall(500, () => {
+                        this.scene.start('LevelCompleteScene', { level: this.level });
+                    });
+                } else {
+                    bg.setFillStyle(0xaa0000);
+                    feedbackText.setText('Wrong! Try again.');
+                    this.time.delayedCall(400, () => {
+                        bg.setFillStyle(0x2a2a4a);
+                    });
+                }
+            });
+        });
+    }
+
+    createRecursiveSequenceLogic(config) {
+        const { width, height } = this.scale;
+        const { sequenceLength, numChoices } = config;
+
+        // Recursive sequence definitions where each term depends on multiple previous terms
+        const recursiveDefs = [
+            // Fibonacci: a(n) = a(n-1) + a(n-2)
+            { rule: 'sum of last 2', seeds: [1, 1], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(s[i - 1] + s[i - 2]); return s; } },
+            // Tribonacci: a(n) = a(n-1) + a(n-2) + a(n-3)
+            { rule: 'sum of last 3', seeds: [1, 1, 2], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(s[i - 1] + s[i - 2] + s[i - 3]); return s; } },
+            // Padovan-like: a(n) = a(n-2) + a(n-3)
+            { rule: 'sum of 2nd and 3rd prev', seeds: [1, 1, 1], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(s[i - 2] + s[i - 3]); return s; } },
+            // Alternating add/multiply: a(n) = a(n-1) + a(n-2) when n is even, a(n) = a(n-1) * 2 when n is odd
+            { rule: 'alternating add/double', seeds: [1, 2], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) { if (i % 2 === 0) s.push(s[i - 1] + s[i - 2]); else s.push(s[i - 1] * 2); } return s; } },
+            // Sum of all previous: a(n) = sum of a(0)..a(n-1)
+            { rule: 'sum of all previous', seeds: [1], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) { let sum = 0; for (let j = 0; j < i; j++) sum += s[j]; s.push(sum); } return s; } },
+            // Fibonacci variant with multiplication: a(n) = a(n-1) + a(n-2) * 2
+            { rule: 'prev + 2×(2nd prev)', seeds: [1, 1], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(s[i - 1] + s[i - 2] * 2); return s; } },
+            // a(n) = a(n-1) * 2 - a(n-2)  (constant difference, but looks recursive)
+            { rule: '2×prev - 2nd prev', seeds: [2, 5], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(s[i - 1] * 2 - s[i - 2]); return s; } },
+            // a(n) = a(n-1) + a(n-2) + 1
+            { rule: 'sum of last 2 plus 1', seeds: [1, 1], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(s[i - 1] + s[i - 2] + 1); return s; } },
+            // Pell-like: a(n) = 2*a(n-1) + a(n-2)
+            { rule: '2×prev + 2nd prev', seeds: [1, 2], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(2 * s[i - 1] + s[i - 2]); return s; } },
+            // a(n) = a(n-1) + n (adds index)
+            { rule: 'prev + position', seeds: [1], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(s[i - 1] + i + 1); return s; } },
+            // a(n) = |a(n-1) - a(n-2)| + a(n-3)
+            { rule: '|diff of last 2| + 3rd prev', seeds: [3, 7, 2], gen: (seeds, n) => { const s = [...seeds]; for (let i = s.length; i < n; i++) s.push(Math.abs(s[i - 1] - s[i - 2]) + s[i - 3]); return s; } },
+        ];
+
+        // Pick a random recursive definition
+        const def = Phaser.Utils.Array.GetRandom(recursiveDefs);
+        const totalNeeded = sequenceLength + 1; // displayed terms + answer
+        const fullSequence = def.gen(def.seeds, totalNeeded);
+        const displayed = fullSequence.slice(0, sequenceLength);
+        const correctAnswer = fullSequence[sequenceLength];
+
+        // Instructions
+        this.add.text(width / 2, 40, 'Recursive Sequence! Find the pattern.', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, 65, 'Each term depends on previous terms. What is the missing last term?', {
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#666666',
+        }).setOrigin(0.5);
+
+        // Display the sequence with last term as '?'
+        const seqY = height / 2 - 70;
+        const items = [...displayed.map(String), '?'];
+        const itemSpacing = Math.min(65, (width - 80) / items.length);
+        const totalW = items.length * itemSpacing;
+        const startX = (width - totalW) / 2 + itemSpacing / 2;
+        const boxSize = Math.min(52, itemSpacing - 8);
+
+        items.forEach((item, i) => {
+            const x = startX + i * itemSpacing;
+            const isQuestion = item === '?';
+
+            const bgColor = isQuestion ? 0x3a3a6a : 0x2a2a4a;
+            const borderColor = isQuestion ? 0x6a6aaa : 0x4a4a6a;
+
+            this.add.rectangle(x, seqY, boxSize, boxSize, bgColor)
+                .setStrokeStyle(2, borderColor);
+
+            const fontSize = item.length > 4 ? '14px' : item.length > 3 ? '16px' : (isQuestion ? '28px' : '20px');
+            this.add.text(x, seqY, item, {
+                fontSize: fontSize,
+                fontFamily: 'Arial, sans-serif',
+                color: isQuestion ? '#888888' : '#ffffff',
+            }).setOrigin(0.5);
+        });
+
+        // Generate wrong answers - make them tricky by using plausible recursive results
+        const wrongAnswers = new Set();
+        // Try applying wrong recursive rules to generate plausible distractors
+        const lastTwo = displayed.slice(-2);
+        const lastThree = displayed.slice(-3);
+        const plausibleWrong = [
+            lastTwo[0] + lastTwo[1],             // simple fibonacci on last 2
+            lastTwo[1] * 2,                       // double last
+            lastTwo[1] + lastTwo[0] * 2,          // weighted sum
+            lastThree[0] + lastThree[1] + lastThree[2], // sum of last 3
+            lastTwo[1] * 2 - lastTwo[0],          // linear extrapolation
+            lastTwo[1] + lastTwo[1] - lastTwo[0] + 1, // off-by-one linear
+            correctAnswer + 1,
+            correctAnswer - 1,
+            correctAnswer + 2,
+            correctAnswer - 2,
+            Math.abs(lastTwo[1] - lastTwo[0]) + lastThree[0],
+        ];
+        for (const w of plausibleWrong) {
+            if (w !== correctAnswer && w > 0 && Number.isInteger(w)) {
+                wrongAnswers.add(w);
+            }
+            if (wrongAnswers.size >= numChoices - 1) break;
+        }
+        // Fill remaining with offsets
+        const offsets = [-5, -3, 3, 5, -7, 7, -4, 4, -6, 6];
+        let oi = 0;
+        while (wrongAnswers.size < numChoices - 1 && oi < offsets.length) {
+            const wrong = correctAnswer + offsets[oi];
+            if (wrong !== correctAnswer && wrong > 0 && !wrongAnswers.has(wrong)) {
+                wrongAnswers.add(wrong);
+            }
+            oi++;
+        }
+
+        const choices = [correctAnswer, ...[...wrongAnswers].slice(0, numChoices - 1)];
+        Phaser.Utils.Array.Shuffle(choices);
+
+        // Draw choice buttons in two rows of 3
         const choiceY = height / 2 + 40;
         const choicesPerRow = 3;
         const choiceW = 80;
