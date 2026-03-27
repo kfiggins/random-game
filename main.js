@@ -34,6 +34,7 @@ const LevelRegistry = {
     27: { type: 'maze', config: { width: 15, height: 15, cellSize: 35, hasKeys: true, keys: 2 } },
     28: { type: 'math', config: { problems: 6, operations: ['multiply', 'divide'], maxNum: 12, timeLimit: 40 } },
     29: { type: 'tower-of-hanoi', config: { discs: 4 } },
+    30: { type: 'jigsaw', config: { rows: 3, cols: 3 } },
 };
 
 // ============================================================
@@ -233,6 +234,8 @@ class GameScene extends Phaser.Scene {
             this.createColorChainPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'tower-of-hanoi') {
             this.createTowerOfHanoiPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'jigsaw') {
+            this.createJigsawPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -2847,6 +2850,175 @@ class GameScene extends Phaser.Scene {
             }
         }
     }
+    createJigsawPuzzle(config) {
+        const { width, height } = this.scale;
+        const { rows, cols } = config;
+        const totalPieces = rows * cols;
+
+        // Instructions
+        this.add.text(width / 2, 70, 'Click a piece, then click a grid slot to place it!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Pieces placed counter
+        let placedCount = 0;
+        const countText = this.add.text(width / 2, height - 40, `Pieces placed: 0 / ${totalPieces}`, {
+            fontSize: '20px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Grid dimensions
+        const pieceSize = 80;
+        const gridW = cols * pieceSize;
+        const gridH = rows * pieceSize;
+        const gridX = width / 2 - gridW / 2;
+        const gridY = 140;
+
+        // Create colorful pattern as a texture using graphics
+        const gfx = this.add.graphics();
+        const colors = [
+            [0xe74c3c, 0xf39c12, 0xf1c40f],
+            [0x2ecc71, 0x3498db, 0x9b59b6],
+            [0x1abc9c, 0xe67e22, 0xc0392b],
+        ];
+
+        // Draw target grid outlines
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const x = gridX + c * pieceSize;
+                const y = gridY + r * pieceSize;
+                this.add.rectangle(x + pieceSize / 2, y + pieceSize / 2, pieceSize, pieceSize, 0x333333)
+                    .setStrokeStyle(2, 0x666666);
+            }
+        }
+
+        // Grid label
+        this.add.text(width / 2, gridY + gridH + 15, 'Target Grid', {
+            fontSize: '14px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#666666',
+        }).setOrigin(0.5);
+
+        // Track placed pieces on the grid
+        const grid = Array.from({ length: rows }, () => Array(cols).fill(null));
+
+        // Selection state
+        let selectedPiece = null;
+        let selectionHighlight = null;
+
+        // Create the scattered pieces
+        const pieces = [];
+        const scatterMinX = 60;
+        const scatterMaxX = width - 60;
+        const scatterMinY = gridY + gridH + 40;
+        const scatterMaxY = height - 70;
+
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const color = colors[r][c];
+                const sx = Phaser.Math.Between(scatterMinX, scatterMaxX);
+                const sy = Phaser.Math.Between(scatterMinY, scatterMaxY);
+
+                const pieceRect = this.add.rectangle(sx, sy, pieceSize - 4, pieceSize - 4, color)
+                    .setStrokeStyle(2, 0xffffff, 0.5)
+                    .setInteractive({ useHandCursor: true });
+
+                // Draw a small label on the piece showing its pattern
+                const label = this.add.text(sx, sy, `${r * cols + c + 1}`, {
+                    fontSize: '20px',
+                    fontFamily: 'Arial, sans-serif',
+                    color: '#ffffff',
+                    fontStyle: 'bold',
+                }).setOrigin(0.5);
+
+                const piece = {
+                    row: r,
+                    col: c,
+                    rect: pieceRect,
+                    label: label,
+                    placed: false,
+                    origX: sx,
+                    origY: sy,
+                };
+                pieces.push(piece);
+
+                pieceRect.on('pointerdown', () => {
+                    if (piece.placed) return;
+
+                    // Clear previous selection
+                    if (selectionHighlight) {
+                        selectionHighlight.destroy();
+                        selectionHighlight = null;
+                    }
+
+                    selectedPiece = piece;
+                    selectionHighlight = this.add.rectangle(
+                        piece.rect.x, piece.rect.y,
+                        pieceSize + 4, pieceSize + 4
+                    ).setStrokeStyle(3, 0xffff00).setFillStyle(0xffff00, 0.15);
+                });
+            }
+        }
+
+        // Create clickable zones on the grid slots
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const x = gridX + c * pieceSize + pieceSize / 2;
+                const y = gridY + r * pieceSize + pieceSize / 2;
+
+                const slot = this.add.rectangle(x, y, pieceSize, pieceSize, 0xffffff, 0)
+                    .setInteractive({ useHandCursor: true });
+
+                slot.on('pointerdown', () => {
+                    if (!selectedPiece) return;
+                    if (grid[r][c] !== null) return;
+
+                    const piece = selectedPiece;
+
+                    // Clear selection highlight
+                    if (selectionHighlight) {
+                        selectionHighlight.destroy();
+                        selectionHighlight = null;
+                    }
+                    selectedPiece = null;
+
+                    // Check if correct position
+                    if (piece.row === r && piece.col === c) {
+                        // Correct — snap piece into grid
+                        piece.rect.setPosition(x, y);
+                        piece.label.setPosition(x, y);
+                        piece.rect.setStrokeStyle(2, 0x00ff00, 0.8);
+                        piece.placed = true;
+                        piece.rect.disableInteractive();
+                        grid[r][c] = piece;
+
+                        placedCount++;
+                        countText.setText(`Pieces placed: ${placedCount} / ${totalPieces}`);
+
+                        // Check win
+                        if (placedCount === totalPieces) {
+                            this.time.delayedCall(500, () => {
+                                this.scene.start('LevelCompleteScene', { level: this.level });
+                            });
+                        }
+                    } else {
+                        // Wrong — flash red and return to scattered position
+                        piece.rect.setStrokeStyle(3, 0xff0000, 1);
+                        this.time.delayedCall(300, () => {
+                            piece.rect.setStrokeStyle(2, 0xffffff, 0.5);
+                            // Return to original scattered position
+                            piece.rect.setPosition(piece.origX, piece.origY);
+                            piece.label.setPosition(piece.origX, piece.origY);
+                        });
+                    }
+                });
+            }
+        }
+    }
+
     createTowerOfHanoiPuzzle(config) {
         const { width, height } = this.scale;
         const { discs } = config;
