@@ -7,6 +7,7 @@
 const LevelRegistry = {
     1: { type: 'color-match', config: { pairs: 3, colors: 4, timeLimit: 30 } },
     2: { type: 'memory-cards', config: { rows: 2, cols: 4, timeLimit: 0 } },
+    3: { type: 'simon-says', config: { sequenceLength: 3, colors: 4, playbackSpeed: 800 } },
 };
 
 // ============================================================
@@ -180,6 +181,8 @@ class GameScene extends Phaser.Scene {
             this.createColorMatchPuzzle(levelData.config);
         } else if (levelData && levelData.type === 'memory-cards') {
             this.createMemoryCardsPuzzle(levelData.config);
+        } else if (levelData && levelData.type === 'simon-says') {
+            this.createSimonSaysPuzzle(levelData.config);
         } else if (levelData) {
             this.add.text(width / 2, height / 2, `Puzzle: ${levelData.type}`, {
                 fontSize: '24px',
@@ -511,6 +514,129 @@ class GameScene extends Phaser.Scene {
                 }
             });
         }
+    }
+
+    createSimonSaysPuzzle(config) {
+        const { width, height } = this.scale;
+        const { sequenceLength, playbackSpeed } = config;
+
+        const colorDefs = [
+            { name: 'Red', hex: 0xff4444, dimHex: 0x882222 },
+            { name: 'Blue', hex: 0x4488ff, dimHex: 0x224488 },
+            { name: 'Green', hex: 0x44dd44, dimHex: 0x227722 },
+            { name: 'Yellow', hex: 0xffdd44, dimHex: 0x887722 },
+        ];
+
+        // Instructions
+        const instructionText = this.add.text(width / 2, 70, 'Watch the sequence!', {
+            fontSize: '18px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#aaaaaa',
+        }).setOrigin(0.5);
+
+        // Progress text
+        const progressText = this.add.text(width / 2, height - 80, '', {
+            fontSize: '22px',
+            fontFamily: 'Arial, sans-serif',
+            color: '#ffffff',
+        }).setOrigin(0.5);
+
+        // Create 2x2 grid of buttons
+        const btnSize = 120;
+        const gap = 20;
+        const gridStartX = width / 2 - btnSize / 2 - gap / 2;
+        const gridStartY = height / 2 - btnSize / 2 - gap / 2;
+
+        const buttons = colorDefs.map((colorDef, i) => {
+            const col = i % 2;
+            const row = Math.floor(i / 2);
+            const x = gridStartX + col * (btnSize + gap);
+            const y = gridStartY + row * (btnSize + gap);
+
+            const rect = this.add.rectangle(x, y, btnSize, btnSize, colorDef.dimHex)
+                .setInteractive({ useHandCursor: true });
+
+            this.add.text(x, y, colorDef.name, {
+                fontSize: '18px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffffff',
+            }).setOrigin(0.5);
+
+            return { rect, colorDef, x, y };
+        });
+
+        // Generate random sequence
+        const sequence = [];
+        for (let i = 0; i < sequenceLength; i++) {
+            sequence.push(Phaser.Math.Between(0, 3));
+        }
+
+        let playerIndex = 0;
+        let inputEnabled = false;
+
+        const lightUp = (btnIndex, duration) => {
+            const btn = buttons[btnIndex];
+            btn.rect.setFillStyle(btn.colorDef.hex);
+            this.time.delayedCall(duration * 0.6, () => {
+                btn.rect.setFillStyle(btn.colorDef.dimHex);
+            });
+        };
+
+        const playSequence = () => {
+            inputEnabled = false;
+            playerIndex = 0;
+            instructionText.setText('Watch the sequence!');
+            progressText.setText('');
+
+            sequence.forEach((btnIndex, i) => {
+                this.time.delayedCall(playbackSpeed * (i + 1), () => {
+                    lightUp(btnIndex, playbackSpeed);
+                });
+            });
+
+            this.time.delayedCall(playbackSpeed * (sequence.length + 1), () => {
+                inputEnabled = true;
+                instructionText.setText('Your turn! Repeat the sequence.');
+                progressText.setText(`0/${sequenceLength}`);
+            });
+        };
+
+        // Button click handlers
+        buttons.forEach((btn, btnIndex) => {
+            btn.rect.on('pointerdown', () => {
+                if (!inputEnabled) return;
+
+                // Flash the button
+                btn.rect.setFillStyle(btn.colorDef.hex);
+                this.time.delayedCall(200, () => {
+                    btn.rect.setFillStyle(btn.colorDef.dimHex);
+                });
+
+                if (sequence[playerIndex] === btnIndex) {
+                    playerIndex++;
+                    progressText.setText(`${playerIndex}/${sequenceLength}`);
+
+                    if (playerIndex >= sequenceLength) {
+                        inputEnabled = false;
+                        instructionText.setText('Correct!');
+                        this.time.delayedCall(500, () => {
+                            this.scene.start('LevelCompleteScene', { level: this.level });
+                        });
+                    }
+                } else {
+                    // Wrong
+                    inputEnabled = false;
+                    instructionText.setText('Wrong! Watch again...');
+                    progressText.setText('');
+                    this.time.delayedCall(1000, () => {
+                        playSequence();
+                    });
+                }
+            });
+        });
+
+        // Start the first playback
+        playSequence();
     }
 
     handleTimeUp() {
