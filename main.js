@@ -36,6 +36,7 @@ const LevelRegistry = {
     29: { type: 'tower-of-hanoi', config: { discs: 4 } },
     30: { type: 'jigsaw', config: { rows: 3, cols: 3 } },
     31: { type: 'memory-cards', config: { rows: 4, cols: 5, timeLimit: 60, reshuffleAfter: 3 } },
+    32: { type: 'color-chain', config: { gridSize: 6, colors: 5, fillBoard: true } },
 };
 
 // ============================================================
@@ -2604,10 +2605,13 @@ class GameScene extends Phaser.Scene {
 
     createColorChainPuzzle(config) {
         const { width, height } = this.scale;
-        const { gridSize, colors } = config;
+        const { gridSize, colors, fillBoard } = config;
 
         // Instructions
-        this.add.text(width / 2, 70, 'Connect matching colored dots!', {
+        const instrText = fillBoard
+            ? 'Connect matching dots — fill every cell!'
+            : 'Connect matching colored dots!';
+        this.add.text(width / 2, 70, instrText, {
             fontSize: '18px',
             fontFamily: 'Arial, sans-serif',
             color: '#aaaaaa',
@@ -2619,16 +2623,36 @@ class GameScene extends Phaser.Scene {
             color: '#666666',
         }).setOrigin(0.5);
 
-        // Hardcoded solvable puzzle for 5x5 with 3 color pairs
-        // Color 0 (red): (0,0) -> (2,2)
-        // Color 1 (green): (0,4) -> (4,0)
-        // Color 2 (blue): (4,4) -> (2,0)
-        const colorValues = [0xff4444, 0x44dd44, 0x4488ff];
-        const endpoints = [
-            { color: 0, start: { r: 0, c: 0 }, end: { r: 2, c: 2 } },
-            { color: 1, start: { r: 0, c: 4 }, end: { r: 4, c: 0 } },
-            { color: 2, start: { r: 4, c: 4 }, end: { r: 2, c: 0 } },
-        ];
+        const allColorValues = [0xff4444, 0x44dd44, 0x4488ff, 0xffdd44, 0xaa44ff];
+        let colorValues, endpoints;
+
+        if (gridSize === 6 && colors === 5 && fillBoard) {
+            // Hardcoded solvable 6x6 puzzle with 5 color pairs that fills all 36 cells
+            // Path A (red):    (0,0)→(0,1)→(0,2)→(1,2)→(1,1)→(1,0)→(2,0)
+            // Path B (green):  (0,3)→(0,4)→(0,5)→(1,5)→(1,4)→(1,3)→(2,3)
+            // Path C (blue):   (2,1)→(2,2)→(3,2)→(3,1)→(3,0)→(4,0)→(4,1)→(4,2)
+            // Path D (yellow): (2,4)→(2,5)→(3,5)→(3,4)→(3,3)→(4,3)→(4,4)
+            // Path E (purple): (4,5)→(5,5)→(5,4)→(5,3)→(5,2)→(5,1)→(5,0)
+            colorValues = allColorValues.slice(0, 5);
+            endpoints = [
+                { color: 0, start: { r: 0, c: 0 }, end: { r: 2, c: 0 } },
+                { color: 1, start: { r: 0, c: 3 }, end: { r: 2, c: 3 } },
+                { color: 2, start: { r: 2, c: 1 }, end: { r: 4, c: 2 } },
+                { color: 3, start: { r: 2, c: 4 }, end: { r: 4, c: 4 } },
+                { color: 4, start: { r: 4, c: 5 }, end: { r: 5, c: 0 } },
+            ];
+        } else {
+            // Default 5x5 with 3 color pairs
+            // Color 0 (red): (0,0) -> (2,2)
+            // Color 1 (green): (0,4) -> (4,0)
+            // Color 2 (blue): (4,4) -> (2,0)
+            colorValues = allColorValues.slice(0, 3);
+            endpoints = [
+                { color: 0, start: { r: 0, c: 0 }, end: { r: 2, c: 2 } },
+                { color: 1, start: { r: 0, c: 4 }, end: { r: 4, c: 0 } },
+                { color: 2, start: { r: 4, c: 4 }, end: { r: 2, c: 0 } },
+            ];
+        }
 
         // Build endpoint lookup: grid[r][c] -> color index, or -1
         const endpointMap = [];
@@ -2662,7 +2686,7 @@ class GameScene extends Phaser.Scene {
         let solved = false;
 
         // Drawing
-        const cellSize = 70;
+        const cellSize = gridSize <= 5 ? 70 : 58;
         const gap = 4;
         const totalSize = gridSize * cellSize + (gridSize - 1) * gap;
         const startX = (width - totalSize) / 2 + cellSize / 2;
@@ -2684,6 +2708,17 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Arial, sans-serif',
             color: '#ffffff',
         }).setOrigin(0.5);
+
+        // Unfilled cells counter (only shown when fillBoard is enabled)
+        const totalCells = gridSize * gridSize;
+        let unfilledText = null;
+        if (fillBoard) {
+            unfilledText = this.add.text(width / 2, startY + totalSize + 70, 'Unfilled cells: ' + totalCells, {
+                fontSize: '16px',
+                fontFamily: 'Arial, sans-serif',
+                color: '#ffdd44',
+            }).setOrigin(0.5);
+        }
 
         const isAdjacent = (r1, c1, r2, c2) => {
             return (Math.abs(r1 - r2) + Math.abs(c1 - c2)) === 1;
@@ -2764,6 +2799,18 @@ class GameScene extends Phaser.Scene {
 
             const connected = countConnected();
             pairsText.setText('Pairs connected: ' + connected + ' / ' + colors);
+
+            if (fillBoard && unfilledText) {
+                let filledCount = 0;
+                for (let r = 0; r < gridSize; r++) {
+                    for (let c = 0; c < gridSize; c++) {
+                        if (cellOwner[r][c] >= 0) filledCount++;
+                    }
+                }
+                const unfilled = totalCells - filledCount;
+                unfilledText.setText('Unfilled cells: ' + unfilled);
+                unfilledText.setColor(unfilled === 0 ? '#44dd44' : '#ffdd44');
+            }
         };
 
         // Create grid cells
@@ -2865,8 +2912,21 @@ class GameScene extends Phaser.Scene {
 
                             // Check win
                             if (countConnected() === colors) {
+                                // If fillBoard, also require all cells filled
+                                if (fillBoard) {
+                                    let allFilled = true;
+                                    for (let cr = 0; cr < gridSize && allFilled; cr++) {
+                                        for (let cc = 0; cc < gridSize && allFilled; cc++) {
+                                            if (cellOwner[cr][cc] < 0) allFilled = false;
+                                        }
+                                    }
+                                    if (!allFilled) {
+                                        statusText.setText('All pairs connected, but fill every cell!').setColor('#ffdd44');
+                                        return;
+                                    }
+                                }
                                 solved = true;
-                                statusText.setText('All pairs connected!').setColor('#44dd44');
+                                statusText.setText(fillBoard ? 'Board filled — all connected!' : 'All pairs connected!').setColor('#44dd44');
                                 this.time.delayedCall(1000, () => {
                                     this.scene.start('LevelCompleteScene', { level: this.level });
                                 });
